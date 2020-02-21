@@ -286,7 +286,10 @@ public:
 
 #if defined(MTS_ENABLE_OPTIX)
     /// Return the OptiX version of this shape
-    virtual RTgeometrytriangles optix_geometry(RTcontext context) override;
+    virtual void optix_geometry() override;
+    virtual void optix_build_input(OptixBuildInput&) const override;
+    virtual void optix_hit_group_data(HitGroupData&) const override;
+
 #endif
 
     /// @}
@@ -340,6 +343,7 @@ protected:
     ref<Struct> m_face_struct;
 
 #if defined(MTS_ENABLE_OPTIX)
+    static const uint32_t triangle_input_flags[1];
     struct OptixData {
         /* GPU versions of the above */
         Point3u  faces;
@@ -347,13 +351,10 @@ protected:
         Normal3f vertex_normals;
         Point2f  vertex_texcoords;
 
-        RTcontext context = nullptr;
-        RTgeometrytriangles geometry = nullptr;
-        RTbuffer faces_buf = nullptr;
-        RTbuffer vertex_positions_buf = nullptr;
-        RTbuffer vertex_normals_buf = nullptr;
-        RTbuffer vertex_texcoords_buf = nullptr;
-        bool ready = false;
+        void* faces_buf = nullptr;
+        void* vertex_positions_buf = nullptr;
+        void* vertex_normals_buf = nullptr;
+        void* vertex_texcoords_buf = nullptr;
     };
 
     std::unique_ptr<OptixData> m_optix;
