@@ -50,6 +50,7 @@ MTS_PY_EXPORT(Shape) {
         .def_method(Shape, primitive_count)
         .def_method(Shape, effective_primitive_count);
 
+    // TODO upgrade this
     using ScalarSize = typename Mesh::ScalarSize;
     MTS_PY_CLASS(Mesh, Shape)
         .def(py::init<const std::string &, Struct *, ScalarSize, Struct *, ScalarSize>(),
