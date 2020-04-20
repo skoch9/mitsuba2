@@ -52,18 +52,19 @@ coordinates and vertex normals.
 template <typename Float, typename Spectrum>
 class PLYMesh final : public Mesh<Float, Spectrum> {
 public:
-    MTS_IMPORT_BASE(Mesh, m_vertices, m_faces, m_normal_offset, m_vertex_size, m_face_size,
-                    m_texcoord_offset, m_color_offset, m_name, m_bbox, m_to_world, m_vertex_count,
-                    m_face_count, m_vertex_struct, m_face_struct, m_disable_vertex_normals,
-                    recompute_vertex_normals, is_emitter, emitter, is_sensor, sensor)
+    MTS_IMPORT_BASE(Mesh, m_name, m_bbox, m_to_world, m_vertex_count, m_face_count,
+                    m_vertex_positions_buf, m_vertex_normals_buf, m_vertex_texcoords_buf,
+                    m_faces_buf, m_disable_vertex_normals, has_vertex_normals, has_vertex_texcoords,
+                    recompute_vertex_normals, is_emitter, emitter)
     MTS_IMPORT_TYPES()
 
     using typename Base::ScalarSize;
     using typename Base::ScalarIndex;
-    using typename Base::VertexHolder;
-    using typename Base::FaceHolder;
+    using ScalarIndex3 = Array<ScalarIndex, 3>;
     using typename Base::InputFloat;
     using typename Base::InputPoint3f ;
+    using typename Base::InputVector2f;
+    using typename Base::InputVector3f;
     using typename Base::InputNormal3f;
 
     struct PLYElement {
@@ -112,28 +113,26 @@ public:
             fail(e.what());
         }
 
-        // TODO check header float type (32 vs 64)
-
         bool has_vertex_normals = false;
-        for (auto &el : header.elements) {
-            size_t size = el.struct_->size();
-            if (el.name == "vertex") {
-                m_vertex_struct = new Struct();
+        bool has_vertex_texcoords = false;
 
+        ref<Struct> vertex_struct = new Struct();
+        ref<Struct> face_struct = new Struct();
+
+        for (auto &el : header.elements) {
+            if (el.name == "vertex") {
                 for (auto name : { "x", "y", "z" })
-                    m_vertex_struct->append(name, struct_type_v<InputFloat>);
+                    vertex_struct->append(name, struct_type_v<InputFloat>);
 
                 if (!m_disable_vertex_normals) {
                     for (auto name : { "nx", "ny", "nz" })
-                        m_vertex_struct->append(name, struct_type_v<InputFloat>,
+                        vertex_struct->append(name, struct_type_v<InputFloat>,
                                                 +Struct::Flags::Default, 0.0);
 
                     if (el.struct_->has_field("nx") &&
                         el.struct_->has_field("ny") &&
                         el.struct_->has_field("nz"))
                         has_vertex_normals = true;
-
-                    m_normal_offset = (ScalarIndex) m_vertex_struct->field("nx").offset;
                 }
 
                 if (el.struct_->has_field("u") && el.struct_->has_field("v")) {
@@ -149,75 +148,82 @@ public:
                 }
                 if (el.struct_->has_field("u") && el.struct_->has_field("v")) {
                     for (auto name : { "u", "v" })
-                        m_vertex_struct->append(name, struct_type_v<InputFloat>);
-
-                    m_texcoord_offset = (ScalarIndex) m_vertex_struct->field("u").offset;
+                        vertex_struct->append(name, struct_type_v<InputFloat>);
+                    has_vertex_texcoords = true;
                 }
 
                 size_t i_struct_size = el.struct_->size();
-                size_t o_struct_size = m_vertex_struct->size();
+                size_t o_struct_size = vertex_struct->size();
 
                 ref<StructConverter> conv;
                 try {
-                    conv = new StructConverter(el.struct_, m_vertex_struct);
+                    conv = new StructConverter(el.struct_, vertex_struct);
                 } catch (const std::exception &e) {
                     fail(e.what());
                 }
 
-                /* Allocate memory for vertices (+1 unused entry) */
-                m_vertices = VertexHolder(new uint8_t[(el.count + 1) * o_struct_size]);
+                m_vertex_count = (ScalarSize) el.count;
+                m_vertex_positions_buf = empty<DynamicBuffer<Float>>(m_vertex_count * 3);
+                if (!m_disable_vertex_normals)
+                    m_vertex_normals_buf = empty<DynamicBuffer<Float>>(m_vertex_count * 3);
+                if (has_vertex_texcoords)
+                    m_vertex_texcoords_buf = empty<DynamicBuffer<Float>>(m_vertex_count * 2);
 
-                /* Clear unused entry */
-                memset(m_vertices.get() + o_struct_size * el.count, 0, o_struct_size);
+                m_vertex_positions_buf.managed();
+                m_vertex_normals_buf.managed();
+                m_vertex_texcoords_buf.managed();
 
                 size_t packet_count     = el.count / elements_per_packet;
                 size_t remainder_count  = el.count % elements_per_packet;
                 size_t i_packet_size    = i_struct_size * elements_per_packet;
                 size_t i_remainder_size = i_struct_size * remainder_count;
+                size_t o_packet_size    = o_struct_size * elements_per_packet;
 
                 std::unique_ptr<uint8_t[]> buf(new uint8_t[i_packet_size]);
-                uint8_t *target = (uint8_t *) m_vertices.get();
+                std::unique_ptr<uint8_t[]> buf_o(new uint8_t[o_packet_size]);
+
+                InputFloat* position_ptr = m_vertex_positions_buf.data();
+                InputFloat* normal_ptr   = m_vertex_normals_buf.data();
+                InputFloat* texcoord_ptr = m_vertex_texcoords_buf.data();
 
                 for (size_t i = 0; i <= packet_count; ++i) {
+                    uint8_t *target = (uint8_t *) buf_o.get();
                     size_t psize = (i != packet_count) ? i_packet_size : i_remainder_size;
                     size_t count = (i != packet_count) ? elements_per_packet : remainder_count;
 
                     stream->read(buf.get(), psize);
-                    if (unlikely(!conv->convert(count, buf.get(), target)))
+                    if (unlikely(!conv->convert(count, buf.get(), buf_o.get())))
                         fail("incompatible contents -- is this a triangle mesh?");
 
-                    if (!has_vertex_normals) {
-                        for (size_t j = 0; j < count; ++j) {
-                            InputPoint3f p = enoki::load<InputPoint3f>(target);
-                            p = m_to_world.transform_affine(p);
-                            if (unlikely(!all(enoki::isfinite(p))))
-                                fail("mesh contains invalid vertex positions/normal data");
-                            m_bbox.expand(p);
-                            enoki::store_unaligned(target, p);
-                            target += o_struct_size;
-                        }
-                    } else {
-                        for (size_t j = 0; j < count; ++j) {
-                            InputPoint3f p = enoki::load<InputPoint3f>(target);
-                            InputNormal3f n =
-                                enoki::load<InputNormal3f>(target + sizeof(InputFloat) * 3);
+                    for (size_t j = 0; j < count; ++j) {
+                        InputPoint3f p = enoki::load<InputPoint3f>(target);
+                        p = m_to_world.transform_affine(p);
+                        if (unlikely(!all(enoki::isfinite(p))))
+                            fail("mesh contains invalid vertex positions/normal data");
+                        m_bbox.expand(p);
+                        store_unaligned(position_ptr, p);
+                        position_ptr += 3;
+
+                        if (has_vertex_normals) {
+                            InputNormal3f n = enoki::load<InputNormal3f>(
+                                target + sizeof(InputFloat) * 3);
                             n = normalize(m_to_world.transform_affine(n));
-                            p = m_to_world.transform_affine(p);
-                            if (unlikely(!all(enoki::isfinite(p) && enoki::isfinite(n))))
-                                fail("mesh contains invalid vertex positions/normal data");
-                            m_bbox.expand(p);
-                            enoki::store_unaligned(target, p);
-                            enoki::store_unaligned(target + sizeof(InputFloat) * 3, n);
-                            target += o_struct_size;
+                            store_unaligned(normal_ptr, n);
+                            normal_ptr += 3;
                         }
+
+                        if (has_vertex_texcoords) {
+                            InputVector2f uv = enoki::load<InputVector2f>(
+                                target + (m_disable_vertex_normals
+                                              ? sizeof(InputFloat) * 3
+                                              : sizeof(InputFloat) * 6));
+                            store_unaligned(texcoord_ptr, uv);
+                            texcoord_ptr += 2;
+                        }
+                        target += o_struct_size;
                     }
                 }
-
-                m_vertex_count = (ScalarSize) el.count;
-                m_vertex_size = (ScalarSize) o_struct_size;
             } else if (el.name == "face") {
-                m_face_struct = new Struct();
-
                 std::string field_name;
                 if (el.struct_->has_field("vertex_index.count"))
                     field_name = "vertex_index";
@@ -227,45 +233,52 @@ public:
                     fail("vertex_index/vertex_indices property not found");
 
                 for (size_t i = 0; i < 3; ++i)
-                    m_face_struct->append(tfm::format("i%i", i), struct_type_v<ScalarIndex>);
+                    face_struct->append(tfm::format("i%i", i), struct_type_v<ScalarIndex>);
 
                 size_t i_struct_size = el.struct_->size();
-                size_t o_struct_size = m_face_struct->size();
+                size_t o_struct_size = face_struct->size();
 
                 ref<StructConverter> conv;
                 try {
-                    conv = new StructConverter(el.struct_, m_face_struct);
+                    conv = new StructConverter(el.struct_, face_struct);
                 } catch (const std::exception &e) {
                     fail(e.what());
                 }
 
-                m_faces = FaceHolder(new uint8_t[(el.count + 1) * o_struct_size]);
+                m_face_count = (ScalarSize) el.count;
+                m_faces_buf = empty<DynamicBuffer<UInt32>>(m_face_count * 3);
+                m_faces_buf.managed();
+
+                ScalarIndex* face_ptr = m_faces_buf.data();
 
                 size_t packet_count     = el.count / elements_per_packet;
                 size_t remainder_count  = el.count % elements_per_packet;
                 size_t i_packet_size    = i_struct_size * elements_per_packet;
-                size_t o_packet_size    = o_struct_size * elements_per_packet;
                 size_t i_remainder_size = i_struct_size * remainder_count;
+                size_t o_packet_size    = o_struct_size * elements_per_packet;
 
                 std::unique_ptr<uint8_t[]> buf(new uint8_t[i_packet_size]);
-                uint8_t *target = (uint8_t *) m_faces.get();
+                std::unique_ptr<uint8_t[]> buf_o(new uint8_t[o_packet_size]);
 
                 for (size_t i = 0; i <= packet_count; ++i) {
+                    uint8_t *target = (uint8_t *) buf_o.get();
                     size_t psize = (i != packet_count) ? i_packet_size : i_remainder_size;
                     size_t count = (i != packet_count) ? elements_per_packet : remainder_count;
 
                     stream->read(buf.get(), psize);
-                    if (unlikely(!conv->convert(count, buf.get(), target)))
+                    if (unlikely(!conv->convert(count, buf.get(), buf_o.get())))
                         fail("incompatible contents -- is this a triangle mesh?");
 
-                    target += o_packet_size;
+                    for (size_t j = 0; j < count; ++j) {
+                        ScalarIndex3 fi = enoki::load<ScalarIndex3>(target);
+                        store_unaligned(face_ptr, fi);
+                        face_ptr += 3;
+                        target += o_struct_size;
+                    }
                 }
-
-                m_face_count = (ScalarSize) el.count;
-                m_face_size = (ScalarSize) o_struct_size;
             } else {
                 Log(Warn, "\"%s\": Skipping unknown element \"%s\"", m_name, el.name);
-                stream->seek(stream->tell() + size * el.count);
+                stream->seek(stream->tell() + el.struct_->size() * el.count);
             }
         }
 
@@ -274,8 +287,8 @@ public:
 
         Log(Debug, "\"%s\": read %i faces, %i vertices (%s in %s)",
             m_name, m_face_count, m_vertex_count,
-            util::mem_string(m_face_count * m_face_struct->size() +
-                             m_vertex_count * m_vertex_struct->size()),
+            util::mem_string(m_face_count * face_struct->size() +
+                             m_vertex_count * vertex_struct->size()),
             util::time_string(timer.value())
         );
 
@@ -288,9 +301,103 @@ public:
 
         if (is_emitter())
             emitter()->set_shape(this);
+
         if (is_sensor())
             sensor()->set_shape(this);
     }
+
+    // std::string type_name(const Struct::Type type) const {
+    //     switch (type) {
+    //         case Struct::Type::Int8:    return "char";
+    //         case Struct::Type::UInt8:   return "uchar";
+    //         case Struct::Type::Int16:   return "short";
+    //         case Struct::Type::UInt16:  return "ushort";
+    //         case Struct::Type::Int32:   return "int";
+    //         case Struct::Type::UInt32:  return "uint";
+    //         case Struct::Type::Int64:   return "long";
+    //         case Struct::Type::UInt64:  return "ulong";
+    //         case Struct::Type::Float16: return "half";
+    //         case Struct::Type::Float32: return "float";
+    //         case Struct::Type::Float64: return "double";
+    //         default: Throw("internal error");
+    //     }
+    // }
+
+    // void write(Stream *stream) const override {
+    //     std::string stream_name = "<stream>";
+    //     auto fs = dynamic_cast<FileStream *>(stream);
+    //     if (fs)
+    //         stream_name = fs->path().filename().string();
+
+    //     Log(Info, "Writing mesh to \"%s\" ..", stream_name);
+
+    //     Timer timer;
+    //     stream->write_line("ply");
+    //     if (Struct::host_byte_order() == Struct::ByteOrder::BigEndian)
+    //         stream->write_line("format binary_big_endian 1.0");
+    //     else
+    //         stream->write_line("format binary_little_endian 1.0");
+
+    //     stream->write_line(tfm::format("element vertex %i", m_vertex_count));
+    //     stream->write_line("property float x");
+    //     stream->write_line("property float y");
+    //     stream->write_line("property float z");
+
+    //     if (has_vertex_normals()) {
+    //         stream->write_line("property float nx");
+    //         stream->write_line("property float ny");
+    //         stream->write_line("property float nz");
+    //     }
+
+    //     if (has_vertex_texcoords()) {
+    //         stream->write_line("property float u");
+    //         stream->write_line("property float v");
+    //     }
+
+    //     stream->write_line(tfm::format("element face %i", m_face_count));
+    //     stream->write_line("property list uchar int vertex_indices");
+    //     stream->write_line("end_header");
+
+    //     // Write vertices data
+    //     const InputFloat* position_ptr = m_vertex_positions_buf.data();
+    //     const InputFloat* normal_ptr   = m_vertex_normals_buf.data();
+    //     const InputFloat* texcoord_ptr = m_vertex_texcoords_buf.data();
+
+    //     for (size_t i = 0; i < m_vertex_count; i++) {
+    //         // Write positions
+    //         stream->write(position_ptr, 3 * sizeof(InputFloat));
+    //         position_ptr += 3;
+    //         // Write normals
+    //         if (has_vertex_normals()) {
+    //             stream->write(normal_ptr, 3 * sizeof(InputFloat));
+    //             normal_ptr += 3;
+    //         }
+    //         // Write texture coordinates
+    //         if (has_vertex_texcoords()) {
+    //             stream->write(texcoord_ptr, 2 * sizeof(InputFloat));
+    //             texcoord_ptr += 2;
+    //         }
+    //     }
+
+    //     // Write faces data
+    //     stream->write(
+    //         m_faces_buf.data(),
+    //         3 * sizeof(ScalarIndex) * m_face_count
+    //     );
+
+    //     size_t vertex_data_bytes = 3 * sizeof(InputFloat);
+    //     if (has_vertex_normals())
+    //         vertex_data_bytes += 3 * sizeof(InputFloat);
+    //     if (has_vertex_texcoords())
+    //         vertex_data_bytes += 2 * sizeof(InputFloat);
+
+    //     Log(Info, "\"%s\": wrote %i faces, %i vertices (%s in %s)",
+    //         m_name, m_face_count, m_vertex_count,
+    //         util::mem_string(m_face_count * 3 * sizeof(ScalarIndex) +
+    //                          m_vertex_count * vertex_data_bytes),
+    //         util::time_string(timer.value())
+    //     );
+    // }
 
 private:
     PLYHeader parse_ply_header(Stream *stream) {
