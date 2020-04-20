@@ -82,8 +82,6 @@ public:
 
     using typename Base::ScalarSize;
     using typename Base::ScalarIndex;
-    using typename Base::VertexHolder;
-    using typename Base::FaceHolder;
     using typename Base::InputFloat;
     using typename Base::InputPoint3f ;
     using typename Base::InputVector2f;

@@ -50,16 +50,13 @@ MTS_PY_EXPORT(Shape) {
         .def_method(Shape, primitive_count)
         .def_method(Shape, effective_primitive_count);
 
-    // TODO upgrade this
     using ScalarSize = typename Mesh::ScalarSize;
     MTS_PY_CLASS(Mesh, Shape)
-        .def(py::init<const std::string &, Struct *, ScalarSize, Struct *, ScalarSize>(),
-            D(Mesh, Mesh))
+        .def(py::init<const std::string&, ScalarSize, ScalarSize, bool, bool>(),
+             "name"_a, "vertex_count"_a, "face_count"_a,
+             "has_vertex_normals"_a = false, "has_vertex_texcoords"_a = false,
+             D(Mesh, Mesh))
         .def(py::init<const std::string &, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, short, const ScalarMatrix4f &>(), "Constructor to call from Blender")
-        .def_method(Mesh, vertex_struct)
-        .def_method(Mesh, face_struct)
-        .def_method(Mesh, vertex_count)
-        .def_method(Mesh, face_count)
         .def_method(Mesh, has_vertex_normals)
         .def_method(Mesh, has_vertex_texcoords)
         .def_method(Mesh, has_vertex_colors)
@@ -77,5 +74,5 @@ MTS_PY_EXPORT(Shape) {
             return py::array(dtype, m.face_count(), m.faces(), o);
         }, D(Mesh, faces))
         .def("ray_intersect_triangle", vectorize(&Mesh::ray_intersect_triangle),
-            "index"_a, "ray"_a, "active"_a = true, D(Mesh, ray_intersect_triangle));
+             "index"_a, "ray"_a, "active"_a = true, D(Mesh, ray_intersect_triangle));
 }
