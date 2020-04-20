@@ -841,7 +841,7 @@ MTS_VARIANT const uint32_t Mesh<Float, Spectrum>::triangle_input_flags[1] = { OP
 MTS_VARIANT void Mesh<Float, Spectrum>::optix_geometry() {
     if constexpr (is_cuda_array_v<Float>) {
         m_vertex_buffer_ptr = (void*) m_vertex_positions_buf.data();
-        parameters_changed();
+        area_distr_ensure();
     }
 }
 
@@ -875,8 +875,7 @@ MTS_VARIANT void Mesh<Float, Spectrum>::parameters_changed() {
 
     recompute_bbox();
 
-    if (m_area_distr.empty())
-        area_distr_build();
+    area_distr_build();
 }
 MTS_VARIANT void Mesh<Float, Spectrum>::traverse(TraversalCallback *callback) {
     Base::traverse(callback);

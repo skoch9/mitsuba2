@@ -127,8 +127,7 @@ def test05_load_simple_mesh(variant_scalar_rgb):
         assert ek.allclose(positions[:5], [130, 165, 65, 82, 165])
 
 
-# @pytest.mark.parametrize('mesh_format', ['obj', 'ply', 'serialized'])
-@pytest.mark.parametrize('mesh_format', ['obj', 'ply'])
+@pytest.mark.parametrize('mesh_format', ['obj', 'ply', 'serialized'])
 @pytest.mark.parametrize('features', ['normals', 'uv', 'normals_uv'])
 @pytest.mark.parametrize('face_normals', [True, False])
 def test06_load_various_features(variant_scalar_rgb, mesh_format, features, face_normals):
@@ -160,7 +159,7 @@ def test06_load_various_features(variant_scalar_rgb, mesh_format, features, face
         if 'uv' in features:
             assert shape.has_vertex_texcoords()
             (uv0, uv2, uv3) = [texcoords[i*2:(i+1)*2] for i in [0, 2, 3]]
-        #     # For OBJs (and .serialized generated from OBJ), UV.y is flipped.
+            # For OBJs (and .serialized generated from OBJ), UV.y is flipped.
             if mesh_format in ['obj', 'serialized']:
                 assert ek.allclose(uv0, [0.950589, 1-0.988416], atol=1e-3)
                 assert ek.allclose(uv2, [0.025105, 1-0.689127], atol=1e-3)
