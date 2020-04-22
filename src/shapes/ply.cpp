@@ -169,9 +169,9 @@ public:
                     // vertex_attribute_structs.push_back(new Struct());
                     size_t field_count = 3;
                     for (auto name : { "r", "g", "b" })
-                        vertex_struct.append(name, struct_type_v<InputFloat>);
+                        vertex_struct->append(name, struct_type_v<InputFloat>);
                     if (el.struct_->has_field("a")) {
-                        vertex_struct.append("a", struct_type_v<InputFloat>);
+                        vertex_struct->append("a", struct_type_v<InputFloat>);
                         ++field_count;
                     }
                     m_vertex_attributes_descriptors.push_back({"color", field_count});
