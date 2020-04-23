@@ -146,7 +146,8 @@ public:
     MTS_IMPORT_BASE(Mesh,m_name, m_bbox, m_to_world, m_vertex_count, m_face_count,
                     m_vertex_positions_buf, m_vertex_normals_buf, m_vertex_texcoords_buf,
                     m_faces_buf, m_disable_vertex_normals, has_vertex_normals, has_vertex_texcoords,
-                    recompute_vertex_normals, is_emitter, emitter, vertex_position, vertex_normal)
+                    recompute_vertex_normals, vertex_position, vertex_normal, is_emitter, emitter,
+                    is_sensor, sensor)
     MTS_IMPORT_TYPES()
 
     using typename Base::ScalarSize;

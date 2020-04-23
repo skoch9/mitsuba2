@@ -56,7 +56,7 @@ public:
                     m_vertex_positions_buf, m_vertex_normals_buf, m_vertex_texcoords_buf,
                     m_faces_buf, m_vertex_attributes_bufs, m_vertex_attributes_descriptors,
                     m_disable_vertex_normals, has_vertex_normals, has_vertex_texcoords,
-                    recompute_vertex_normals, is_emitter, emitter)
+                    recompute_vertex_normals, is_emitter, emitter, is_sensor, sensor)
     MTS_IMPORT_TYPES()
 
     using typename Base::ScalarSize;
@@ -350,99 +350,6 @@ public:
         if (is_sensor())
             sensor()->set_shape(this);
     }
-
-    // std::string type_name(const Struct::Type type) const {
-    //     switch (type) {
-    //         case Struct::Type::Int8:    return "char";
-    //         case Struct::Type::UInt8:   return "uchar";
-    //         case Struct::Type::Int16:   return "short";
-    //         case Struct::Type::UInt16:  return "ushort";
-    //         case Struct::Type::Int32:   return "int";
-    //         case Struct::Type::UInt32:  return "uint";
-    //         case Struct::Type::Int64:   return "long";
-    //         case Struct::Type::UInt64:  return "ulong";
-    //         case Struct::Type::Float16: return "half";
-    //         case Struct::Type::Float32: return "float";
-    //         case Struct::Type::Float64: return "double";
-    //         default: Throw("internal error");
-    //     }
-    // }
-
-    // void write(Stream *stream) const override {
-    //     std::string stream_name = "<stream>";
-    //     auto fs = dynamic_cast<FileStream *>(stream);
-    //     if (fs)
-    //         stream_name = fs->path().filename().string();
-
-    //     Log(Info, "Writing mesh to \"%s\" ..", stream_name);
-
-    //     Timer timer;
-    //     stream->write_line("ply");
-    //     if (Struct::host_byte_order() == Struct::ByteOrder::BigEndian)
-    //         stream->write_line("format binary_big_endian 1.0");
-    //     else
-    //         stream->write_line("format binary_little_endian 1.0");
-
-    //     stream->write_line(tfm::format("element vertex %i", m_vertex_count));
-    //     stream->write_line("property float x");
-    //     stream->write_line("property float y");
-    //     stream->write_line("property float z");
-
-    //     if (has_vertex_normals()) {
-    //         stream->write_line("property float nx");
-    //         stream->write_line("property float ny");
-    //         stream->write_line("property float nz");
-    //     }
-
-    //     if (has_vertex_texcoords()) {
-    //         stream->write_line("property float u");
-    //         stream->write_line("property float v");
-    //     }
-
-    //     stream->write_line(tfm::format("element face %i", m_face_count));
-    //     stream->write_line("property list uchar int vertex_indices");
-    //     stream->write_line("end_header");
-
-    //     // Write vertices data
-    //     const InputFloat* position_ptr = m_vertex_positions_buf.data();
-    //     const InputFloat* normal_ptr   = m_vertex_normals_buf.data();
-    //     const InputFloat* texcoord_ptr = m_vertex_texcoords_buf.data();
-
-    //     for (size_t i = 0; i < m_vertex_count; i++) {
-    //         // Write positions
-    //         stream->write(position_ptr, 3 * sizeof(InputFloat));
-    //         position_ptr += 3;
-    //         // Write normals
-    //         if (has_vertex_normals()) {
-    //             stream->write(normal_ptr, 3 * sizeof(InputFloat));
-    //             normal_ptr += 3;
-    //         }
-    //         // Write texture coordinates
-    //         if (has_vertex_texcoords()) {
-    //             stream->write(texcoord_ptr, 2 * sizeof(InputFloat));
-    //             texcoord_ptr += 2;
-    //         }
-    //     }
-
-    //     // Write faces data
-    //     stream->write(
-    //         m_faces_buf.data(),
-    //         3 * sizeof(ScalarIndex) * m_face_count
-    //     );
-
-    //     size_t vertex_data_bytes = 3 * sizeof(InputFloat);
-    //     if (has_vertex_normals())
-    //         vertex_data_bytes += 3 * sizeof(InputFloat);
-    //     if (has_vertex_texcoords())
-    //         vertex_data_bytes += 2 * sizeof(InputFloat);
-
-    //     Log(Info, "\"%s\": wrote %i faces, %i vertices (%s in %s)",
-    //         m_name, m_face_count, m_vertex_count,
-    //         util::mem_string(m_face_count * 3 * sizeof(ScalarIndex) +
-    //                          m_vertex_count * vertex_data_bytes),
-    //         util::time_string(timer.value())
-    //     );
-    // }
 
 private:
     PLYHeader parse_ply_header(Stream *stream) {

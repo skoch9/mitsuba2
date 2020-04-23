@@ -235,51 +235,20 @@ MTS_VARIANT Mesh<Float, Spectrum>::Mesh(
     Log(Warn, "Removed %i duplicates", duplicates_ctr);
     if (vertex_ctr == 0)
         return;
-    m_vertex_count = vertex_ctr;
+
     m_face_count   = (ScalarSize) tmp_triangles.size();
-    // create the vertex buffer and initialize its fields
-    m_vertex_struct = new Struct();
-    for (auto name : { "x", "y", "z" })
-        m_vertex_struct->append(name, struct_type_v<InputFloat>);
-    m_disable_vertex_normals = false;
-    for (auto name : { "nx", "ny", "nz" })
-        m_vertex_struct->append(name, struct_type_v<InputFloat>);
-    m_normal_offset = (ScalarIndex) m_vertex_struct->offset("nx");
-    if (has_uvs) {
-        for (auto name : { "u", "v" })
-            m_vertex_struct->append(name, struct_type_v<InputFloat>);
-        m_texcoord_offset = (ScalarIndex) m_vertex_struct->offset("u");
-    }
-    if (has_cols) {
-        for (auto name : { "r", "g", "b" })
-            m_vertex_struct->append(name, struct_type_v<InputFloat>);
-        m_color_offset = (ScalarIndex) m_vertex_struct->offset("r");
-    }
+    m_faces_buf = DynamicBuffer<UInt32>::copy(tmp_triangles.data(), m_face_count * 3);
 
-    // create the face buffer and initialize its fields
-    m_face_struct = new Struct();
-    for (size_t i = 0; i < 3; ++i)
-        m_face_struct->append(tfm::format("i%i", i),
-                              struct_type_v<ScalarIndex>);
+    m_vertex_count = vertex_ctr;
+    m_vertex_positions_buf = FloatStorage::copy(tmp_vertices.data(), m_vertex_count * 3);
+    m_vertex_normals_buf = FloatStorage::copy(tmp_normals.data(), m_vertex_count * 3);
+    if (has_uvs)
+        m_vertex_texcoords_buf = FloatStorage::copy(tmp_uvs.data(), m_vertex_count * 2);
 
-    m_vertex_size = (ScalarSize) m_vertex_struct->size();
-    m_face_size   = (ScalarSize) m_face_struct->size();
-    m_vertices =
-        VertexHolder(new uint8_t[(m_vertex_count + 1) * m_vertex_size]);
-    m_faces = FaceHolder(new uint8_t[(m_face_count + 1) * m_face_size]);
-    memcpy(m_faces.get(), tmp_triangles.data(), m_face_count * m_face_size);
-
-    for (ScalarIndex id = 0; id < vertex_ctr; id++) {
-        uint8_t *vertex_ptr = vertex(id);
-
-        store_unaligned(vertex_ptr, tmp_vertices[id]);
-        m_bbox.expand(tmp_vertices[id]);
-        store_unaligned(vertex_ptr + m_normal_offset, tmp_normals[id]);
-        if (has_uvs)
-            store_unaligned(vertex_ptr + m_texcoord_offset, tmp_uvs[id]);
-        if (has_cols)
-            store_unaligned(vertex_ptr + m_color_offset, tmp_cols[id]);
-    }
+    m_faces_buf.managed();
+    m_vertex_positions_buf.managed();
+    m_vertex_normals_buf.managed();
+    m_vertex_texcoords_buf.managed();
 }
 
 MTS_VARIANT Mesh<Float, Spectrum>::~Mesh() { }
@@ -307,25 +276,7 @@ Mesh<Float, Spectrum>::bbox(ScalarIndex index) const {
                                                                max(max(v0, v1), v2));
 }
 
-std::string type_name(const Struct::Type type) {
-    switch (type) {
-        case Struct::Type::Int8:    return "char";
-        case Struct::Type::UInt8:   return "uchar";
-        case Struct::Type::Int16:   return "short";
-        case Struct::Type::UInt16:  return "ushort";
-        case Struct::Type::Int32:   return "int";
-        case Struct::Type::UInt32:  return "uint";
-        case Struct::Type::Int64:   return "long";
-        case Struct::Type::UInt64:  return "ulong";
-        case Struct::Type::Float16: return "half";
-        case Struct::Type::Float32: return "float";
-        case Struct::Type::Float64: return "double";
-        default: Throw("internal error");
-    }
-}
-
 MTS_VARIANT void Mesh<Float, Spectrum>::write_ply(Stream *stream) const {
-
     std::string stream_name = "<stream>";
     auto fs = dynamic_cast<FileStream *>(stream);
     if (fs)
@@ -340,53 +291,63 @@ MTS_VARIANT void Mesh<Float, Spectrum>::write_ply(Stream *stream) const {
     else
         stream->write_line("format binary_little_endian 1.0");
 
-    if (m_vertex_struct->field_count() > 0) {
-        stream->write_line(tfm::format("element vertex %i", m_vertex_count));
-        for (auto const &f : *m_vertex_struct)
-            stream->write_line(
-                tfm::format("property %s %s", type_name(f.type), f.name));
+    stream->write_line(tfm::format("element vertex %i", m_vertex_count));
+    stream->write_line("property float x");
+    stream->write_line("property float y");
+    stream->write_line("property float z");
+
+    if (has_vertex_normals()) {
+        stream->write_line("property float nx");
+        stream->write_line("property float ny");
+        stream->write_line("property float nz");
     }
 
-    if (m_face_struct->field_count() > 0) {
-        stream->write_line(tfm::format("element face %i", m_face_count));
-        stream->write_line(tfm::format("property list uchar %s vertex_indices",
-            type_name((*m_face_struct)[0].type)));
+    if (has_vertex_texcoords()) {
+        stream->write_line("property float u");
+        stream->write_line("property float v");
     }
 
+    stream->write_line(tfm::format("element face %i", m_face_count));
+    stream->write_line("property list uchar int vertex_indices");
     stream->write_line("end_header");
 
-    if (m_vertex_struct->field_count() > 0) {
-        stream->write(
-            m_vertices.get(),
-            m_vertex_struct->size() * m_vertex_count
-        );
+    // Write vertices data
+    const InputFloat* position_ptr = m_vertex_positions_buf.data();
+    const InputFloat* normal_ptr   = m_vertex_normals_buf.data();
+    const InputFloat* texcoord_ptr = m_vertex_texcoords_buf.data();
+
+    for (size_t i = 0; i < m_vertex_count; i++) {
+        // Write positions
+        stream->write(position_ptr, 3 * sizeof(InputFloat));
+        position_ptr += 3;
+        // Write normals
+        if (has_vertex_normals()) {
+            stream->write(normal_ptr, 3 * sizeof(InputFloat));
+            normal_ptr += 3;
+        }
+        // Write texture coordinates
+        if (has_vertex_texcoords()) {
+            stream->write(texcoord_ptr, 2 * sizeof(InputFloat));
+            texcoord_ptr += 2;
+        }
     }
 
-    if (m_face_struct->field_count() > 0) {
-        ref<Struct> face_struct_out = new Struct(true);
+    // Write faces data
+    stream->write(
+        m_faces_buf.data(),
+        3 * sizeof(ScalarIndex) * m_face_count
+    );
 
-        face_struct_out->append("__size", Struct::Type::UInt8, +Struct::Flags::Default,3.0);
-        for (auto f: *m_face_struct)
-            face_struct_out->append(f.name, f.type);
-
-        ref<StructConverter> conv =
-            new StructConverter(m_face_struct, face_struct_out);
-
-        FaceHolder temp(new uint8_t[face_struct_out->size() * m_face_count]);
-
-        if (!conv->convert(m_face_count, m_faces.get(), temp.get()))
-            Throw("PLYMesh::write(): internal error during conversion");
-
-        stream->write(
-            temp.get(),
-            face_struct_out->size() * m_face_count
-        );
-    }
+    size_t vertex_data_bytes = 3 * sizeof(InputFloat);
+    if (has_vertex_normals())
+        vertex_data_bytes += 3 * sizeof(InputFloat);
+    if (has_vertex_texcoords())
+        vertex_data_bytes += 2 * sizeof(InputFloat);
 
     Log(Info, "\"%s\": wrote %i faces, %i vertices (%s in %s)",
         m_name, m_face_count, m_vertex_count,
-        util::mem_string(m_face_count * m_face_struct->size() +
-                         m_vertex_count * m_vertex_struct->size()),
+        util::mem_string(m_face_count * 3 * sizeof(ScalarIndex) +
+                            m_vertex_count * vertex_data_bytes),
         util::time_string(timer.value())
     );
 }

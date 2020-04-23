@@ -59,7 +59,6 @@ MTS_PY_EXPORT(Shape) {
         .def(py::init<const std::string &, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, short, const ScalarMatrix4f &>(), "Constructor to call from Blender")
         .def_method(Mesh, has_vertex_normals)
         .def_method(Mesh, has_vertex_texcoords)
-        .def_method(Mesh, has_vertex_colors)
         .def_method(Mesh, recompute_vertex_normals)
         .def_method(Mesh, recompute_bbox)
         .def("write_ply", &Mesh::write_ply, "stream"_a, "Export mesh as a binary PLY file")
