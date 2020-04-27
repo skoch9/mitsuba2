@@ -246,6 +246,16 @@ public:
                                                             bool shading_frame = true,
                                                             Mask active        = true) const;
 
+    virtual Vector1f eval_attribute_1(const SurfaceInteraction3f& /*si*/, int32_t /*attribute_index*/, Mask /*active*/) const { return zero<Float>(); }
+    virtual Vector2f eval_attribute_2(const SurfaceInteraction3f& /*si*/, int32_t /*attribute_index*/, Mask /*active*/) const { return zero<Vector2f>(); }
+    virtual Vector3f eval_attribute_3(const SurfaceInteraction3f& /*si*/, int32_t /*attribute_index*/, Mask /*active*/) const { return zero<Vector3f>(); }
+    virtual Vector4f eval_attribute_4(const SurfaceInteraction3f& /*si*/, int32_t /*attribute_index*/, Mask /*active*/) const { return zero<Vector4f>(); }
+
+    int32_t get_attribute_1_index(const std::string& name) const { return get_attribute_index_impl<1>(name); }
+    int32_t get_attribute_2_index(const std::string& name) const { return get_attribute_index_impl<2>(name); }
+    int32_t get_attribute_3_index(const std::string& name) const { return get_attribute_index_impl<3>(name); }
+    int32_t get_attribute_4_index(const std::string& name) const { return get_attribute_index_impl<4>(name); }
+
     //! @}
     // =============================================================
 
@@ -271,6 +281,9 @@ public:
 
     /// Return the shape's BSDF
     const BSDF *bsdf() const { return m_bsdf.get(); }
+
+    /// Return the shape's BSDF
+    BSDF *bsdf() { return m_bsdf.get(); }
 
     /// Is this shape also an area emitter?
     bool is_emitter() const { return (bool) m_emitter; }
@@ -332,6 +345,15 @@ protected:
     inline Shape() { }
     virtual ~Shape();
 
+private:
+    template<size_t Size>
+    int32_t get_attribute_index_impl(const std::string& name) const {
+        for (uint32_t i = 0; i < m_vertex_attributes_descriptors.size(); ++i)
+            if (m_vertex_attributes_descriptors[i].name == name && Size == m_vertex_attributes_descriptors[i].size)
+                return (int32_t)i;
+        return -1;
+    }
+
 protected:
     bool m_mesh = false;
     ref<BSDF> m_bsdf;
@@ -340,6 +362,12 @@ protected:
     ref<Medium> m_interior_medium;
     ref<Medium> m_exterior_medium;
     std::string m_id;
+
+    struct AttributeDescriptor {
+        std::string name;
+        size_t size;
+    };
+    std::vector<AttributeDescriptor> m_vertex_attributes_descriptors;
 };
 
 MTS_EXTERN_CLASS_RENDER(Shape)
@@ -352,6 +380,14 @@ NAMESPACE_END(mitsuba)
 ENOKI_CALL_SUPPORT_TEMPLATE_BEGIN(mitsuba::Shape)
     ENOKI_CALL_SUPPORT_METHOD(normal_derivative)
     ENOKI_CALL_SUPPORT_METHOD(fill_surface_interaction)
+    ENOKI_CALL_SUPPORT_METHOD(eval_attribute_1)
+    ENOKI_CALL_SUPPORT_METHOD(eval_attribute_2)
+    ENOKI_CALL_SUPPORT_METHOD(eval_attribute_3)
+    ENOKI_CALL_SUPPORT_METHOD(eval_attribute_4)
+    ENOKI_CALL_SUPPORT_METHOD(get_attribute_1_index)
+    ENOKI_CALL_SUPPORT_METHOD(get_attribute_2_index)
+    ENOKI_CALL_SUPPORT_METHOD(get_attribute_3_index)
+    ENOKI_CALL_SUPPORT_METHOD(get_attribute_4_index)
     ENOKI_CALL_SUPPORT_GETTER_TYPE(emitter, m_emitter, const typename Class::Emitter *)
     ENOKI_CALL_SUPPORT_GETTER_TYPE(sensor, m_sensor, const typename Class::Sensor *)
     ENOKI_CALL_SUPPORT_GETTER_TYPE(bsdf, m_bsdf, const typename Class::BSDF *)

@@ -113,8 +113,14 @@ public:
 
         active &= cos_theta_i > 0.f && cos_theta_o > 0.f;
 
-        UnpolarizedSpectrum value =
-            m_reflectance->eval(si, active) * math::InvPi<Float> * cos_theta_o;
+        UnpolarizedSpectrum value;
+        if (m_color_attribute_index != -1) {
+            Vector4f color = si.shape->eval_attribute_4(si, m_color_attribute_index, active);
+            Vector3f color_rgb = Vector3f(color.x(), color.y(), color.z()) / 255.f;
+            value = color_rgb * math::InvPi<Float> * cos_theta_o;
+        } else {
+            value = m_reflectance->eval(si, active) * math::InvPi<Float> * cos_theta_o;
+        }
 
         return select(active, unpolarized<Spectrum>(value), 0.f);
     }
@@ -146,9 +152,16 @@ public:
         return oss.str();
     }
 
+    virtual void prepare_attributes(const Shape<Float, Spectrum>* parent_shape) override {
+        m_color_attribute_index = parent_shape->get_attribute_4_index("color");
+        if (m_color_attribute_index == -1)
+            Log(Warn, "Couldn't find attribute color.");
+    }
+
     MTS_DECLARE_CLASS()
 private:
     ref<Texture> m_reflectance;
+    int32_t m_color_attribute_index = -1;
 };
 
 MTS_IMPLEMENT_CLASS_VARIANT(SmoothDiffuse, BSDF)

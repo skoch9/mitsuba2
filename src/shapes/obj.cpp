@@ -344,6 +344,7 @@ public:
             emitter()->set_shape(this);
         if (is_sensor())
             sensor()->set_shape(this);
+        bsdf()->prepare_attributes(this);
     }
 
     MTS_DECLARE_CLASS()

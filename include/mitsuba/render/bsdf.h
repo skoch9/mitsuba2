@@ -408,6 +408,8 @@ public:
     virtual Spectrum eval_null_transmission(const SurfaceInteraction3f &si,
                              Mask active = true) const;
 
+    virtual void prepare_attributes(const Shape<Float, Spectrum>* /*parent_shape*/) { /* default implementation does nothing */ }
+
     // -----------------------------------------------------------------------
     //! @{ \name BSDF property accessors (components, flags, etc)
     // -----------------------------------------------------------------------

@@ -180,6 +180,12 @@ public:
         return result;
     }
 
+    virtual void prepare_attributes(const Shape<Float, Spectrum>* parent_shape) override {
+        m_brdf[0]->prepare_attributes(parent_shape);
+        if (m_brdf[0] != m_brdf[1])
+            m_brdf[1]->prepare_attributes(parent_shape);
+    }
+
     void traverse(TraversalCallback *callback) override {
         callback->put_object("brdf_0", m_brdf[0].get());
         callback->put_object("brdf_1", m_brdf[1].get());

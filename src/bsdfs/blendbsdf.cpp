@@ -166,6 +166,11 @@ public:
         return clamp(m_weight->eval_1(si, active), 0.f, 1.f);
     }
 
+    virtual void prepare_attributes(const Shape<Float, Spectrum>* parent_shape) override {
+        m_nested_bsdf[0]->prepare_attributes(parent_shape);
+        m_nested_bsdf[1]->prepare_attributes(parent_shape);
+    }
+
     void traverse(TraversalCallback *callback) override {
         callback->put_object("weight", m_weight.get());
         callback->put_object("bsdf_0", m_nested_bsdf[0].get());

@@ -337,6 +337,7 @@ public:
             emitter()->set_shape(this);
         if (is_sensor())
             sensor()->set_shape(this);
+        bsdf()->prepare_attributes(this);
     }
 
     void read_helper(Stream *stream, bool dp, InputFloat* dst, size_t dim) {

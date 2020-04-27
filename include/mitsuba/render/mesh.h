@@ -164,6 +164,20 @@ public:
     normal_derivative(const SurfaceInteraction3f &si,
                       bool shading_frame = true, Mask active = true) const override;
 
+    // Evaluates the vertex attribute given by index and Size, at surface interaction si
+    virtual Vector1f eval_attribute_1(const SurfaceInteraction3f& si, int32_t attribute_index, Mask active = true) const override {
+        return eval_attribute_impl<1>(si, attribute_index, active);
+    }
+    virtual Vector2f eval_attribute_2(const SurfaceInteraction3f& si, int32_t attribute_index, Mask active = true) const override {
+        return eval_attribute_impl<2>(si, attribute_index, active);
+    }
+    virtual Vector3f eval_attribute_3(const SurfaceInteraction3f& si, int32_t attribute_index, Mask active = true) const override {
+        return eval_attribute_impl<3>(si, attribute_index, active);
+    }
+    virtual Vector4f eval_attribute_4(const SurfaceInteraction3f& si, int32_t attribute_index, Mask active = true) const override {
+        return eval_attribute_impl<4>(si, attribute_index, active);
+    }
+
     /** \brief Ray-triangle intersection test
      *
      * Uses the algorithm by Moeller and Trumbore discussed at
@@ -231,29 +245,24 @@ public:
     /// Return a human-readable string representation of the shape contents.
     virtual std::string to_string() const override;
 
-    // Evaluates the vertex attribute given by name and Size, at surface interaction si
+private:
     template<uint32_t Size>
-    auto eval_attibute(const SurfaceInteraction3f& si, const std::string& name, Mask active = true) {
-        using Result = Point<replace_scalar_t<Mask, InputFloat>, Size>;
-        uint32_t i = 0;
-        for (const auto& attribute_descriptor: m_vertex_attributes_descriptors) {
-            if (attribute_descriptor.name == name)
-                break;
-            ++i;
+    auto eval_attribute_impl(const SurfaceInteraction3f& si, int32_t attribute_index, Mask active = true) const {
+        using Result = Vector<replace_scalar_t<Mask, float>, Size>;
+        if (attribute_index < 0 || attribute_index >= (int32_t)Shape<Float, Spectrum>::m_vertex_attributes_descriptors.size()) {
+            // Log(Warn, "Mesh::eval_attibute(): Couldn't find vertex attribute named '%s'", name);
+            return zero<Result>();
         }
-        if (i == m_vertex_attributes_descriptors.size())
-            Throw("Mesh::eval_attibute(): Couldn't find vertex attribute named '%s'", name);
-        if (Size != m_vertex_attributes_descriptors[i].size)
-            Throw("Mesh::eval_attibute(): Vertex attribute named '%s' had size '%u', did not match requested size %u", name, m_vertex_attributes_descriptors[i].size, Size);
+        // This should be true
+        // assert(i >= 0 && i < m_vertex_attributes_descriptors.size());
+        // assert(Size == m_vertex_attributes_descriptors[attribute_index].size);
 
         auto fi = face_indices(si.prim_index, active);
         auto[b0, b1, b2] = barycentric_coordinates(si, active);
 
-        Result attrs[3] = { vertex_attribute<Size>(i, fi[0], active),
-                            vertex_attribute<Size>(i, fi[1], active),
-                            vertex_attribute<Size>(i, fi[2], active) };
-
-
+        Result attrs[3] = { vertex_attribute<Size>(attribute_index, fi[0], active),
+                            vertex_attribute<Size>(attribute_index, fi[1], active),
+                            vertex_attribute<Size>(attribute_index, fi[2], active) };
         Result attr = b0 * attrs[0] + b1 * attrs[1] + b2 * attrs[2];
 
         return attr;
@@ -293,13 +302,7 @@ protected:
 
     DynamicBuffer<UInt32> m_faces_buf;
 
-    struct AttributeDescriptor {
-        std::string name;
-        size_t size;
-    };
-
     std::vector<DynamicBuffer<Float>> m_vertex_attributes_bufs;
-    std::vector<AttributeDescriptor> m_vertex_attributes_descriptors;
 
     // END NEW DESIGN
 
@@ -324,10 +327,10 @@ NAMESPACE_END(mitsuba)
 //! @{ \name Enoki accessors for dynamic vectorization
 // -----------------------------------------------------------------------
 
-// Enable usage of array pointers for our types
-ENOKI_CALL_SUPPORT_TEMPLATE_BEGIN(mitsuba::Mesh)
-    ENOKI_CALL_SUPPORT_METHOD(fill_surface_interaction)
-ENOKI_CALL_SUPPORT_TEMPLATE_END(mitsuba::Mesh)
+// // Enable usage of array pointers for our types
+// ENOKI_CALL_SUPPORT_TEMPLATE_BEGIN(mitsuba::Mesh)
+//     ENOKI_CALL_SUPPORT_METHOD(fill_surface_interaction)
+// ENOKI_CALL_SUPPORT_TEMPLATE_END(mitsuba::Mesh)
 
 //! @}
 // -----------------------------------------------------------------------
