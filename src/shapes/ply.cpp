@@ -2,7 +2,6 @@
 #include <mitsuba/render/emitter.h>
 #include <mitsuba/render/sensor.h>
 #include <mitsuba/render/bsdf.h>
-#include <mitsuba/render/mesh_attribute.h>
 #include <mitsuba/core/fstream.h>
 #include <mitsuba/core/mstream.h>
 #include <mitsuba/core/fresolver.h>
@@ -57,7 +56,7 @@ class PLYMesh final : public Mesh<Float, Spectrum> {
 public:
     MTS_IMPORT_BASE(Mesh, m_name, m_bbox, m_to_world, m_vertex_count, m_face_count,
                     m_vertex_positions_buf, m_vertex_normals_buf, m_vertex_texcoords_buf,
-                    m_faces_buf, m_vertex_attributes_bufs, m_vertex_attributes_descriptors, m_mesh_attributes,
+                    m_faces_buf, m_vertex_attributes_bufs, m_vertex_attributes_descriptors,
                     m_disable_vertex_normals, has_vertex_normals, has_vertex_texcoords,
                     recompute_vertex_normals, is_emitter, emitter, is_sensor, sensor, bsdf)
     MTS_IMPORT_TYPES()
@@ -452,33 +451,6 @@ public:
             emitter()->set_shape(this);
         if (is_sensor())
             sensor()->set_shape(this);
-
-        std::vector<bool> mesh_attribute_found_data(m_mesh_attributes.size());
-        std::fill(mesh_attribute_found_data.begin(), mesh_attribute_found_data.end(), false);
-
-        for (size_t i = 0; i < m_vertex_attributes_descriptors.size(); ++i) {
-            const std::string& attr_name = m_vertex_attributes_descriptors[i].name;
-            size_t attr_size = m_vertex_attributes_descriptors[i].size;
-            size_t j = 0;
-            for (; j < m_mesh_attributes.size(); ++j) {
-                if (attr_name == m_mesh_attributes[j]->name() && attr_size == m_mesh_attributes[j]->size()) {
-                    m_mesh_attributes[j]->init(this, &m_vertex_attributes_bufs[i]);
-                    mesh_attribute_found_data[j] = true;
-                    break;
-                }
-            }
-            if (j == m_mesh_attributes.size())
-                Log(Warn, "Vertex attribute \"%s\" was provided in ply file, but wasn't used.", attr_name);
-        }
-        bool has_missing_mesh_attribute_data = false;
-        for (size_t j = 0; j < m_mesh_attributes.size(); ++j) {
-            if (!mesh_attribute_found_data[j]) {
-                has_missing_mesh_attribute_data = true;
-                Log(Warn, "Mesh attribute \"%s\" was requested in xml but wasn't present in ply.", m_mesh_attributes[j]->name());
-            }
-        }
-        if (has_missing_mesh_attribute_data)
-            Throw("Mesh missed some attributes.");
     }
 
 private:

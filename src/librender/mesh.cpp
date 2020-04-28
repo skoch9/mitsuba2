@@ -7,7 +7,6 @@
 #include <mitsuba/render/interaction.h>
 #include <mitsuba/render/mesh.h>
 #include <mitsuba/render/records.h>
-#include <mitsuba/render/mesh_attribute.h>
 #include "blender_types.h"
 #include <mutex>
 
@@ -32,12 +31,6 @@ MTS_VARIANT Mesh<Float, Spectrum>::Mesh(const Properties &props) : Base(props) {
         m_disable_vertex_normals = true;
     m_to_world = props.transform("to_world", ScalarTransform4f());
     m_mesh = true;
-
-    for (auto &kv : props.objects()) {
-        MeshAttribute *mesh_attribute = dynamic_cast<MeshAttribute *>(kv.second.get());
-        if (mesh_attribute)
-            m_mesh_attributes.push_back(mesh_attribute);
-    }
 }
 
 MTS_VARIANT Mesh<Float, Spectrum>::Mesh(const std::string &name,

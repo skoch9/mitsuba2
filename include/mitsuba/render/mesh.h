@@ -264,7 +264,7 @@ private:
                             vertex_attribute<Size>(attribute_index, fi[2], active) };
         Result attr = b0 * attrs[0] + b1 * attrs[1] + b2 * attrs[2];
 
-        return attr / 256.f;
+        return attr;
     }
 
 protected:
@@ -307,7 +307,6 @@ protected:
     };
     std::vector<AttributeDescriptor> m_vertex_attributes_descriptors;
     std::vector<DynamicBuffer<Float>> m_vertex_attributes_bufs;
-    std::vector<ref<MeshAttribute>> m_mesh_attributes;
 
     // END NEW DESIGN
 

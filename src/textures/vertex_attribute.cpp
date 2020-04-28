@@ -1,5 +1,4 @@
-#include <mitsuba/render/mesh.h>
-#include <mitsuba/render/mesh_attribute.h>
+#include <mitsuba/render/texture.h>
 #include <mitsuba/render/interaction.h>
 #include <mitsuba/core/properties.h>
 #include <mitsuba/core/transform.h>
@@ -16,13 +15,20 @@ template <typename Float, typename Spectrum, uint32_t Size>
 class VertexAttributeImpl;
 
 template <typename Float, typename Spectrum>
-class VertexAttribute final : public MeshAttribute<Float, Spectrum> {
+class VertexAttribute final : public Texture<Float, Spectrum> {
 public:
-    MTS_IMPORT_BASE(MeshAttribute, m_attribute_name, m_attribute_size, m_scale);
-    MTS_IMPORT_TYPES(MeshAttribute)
+    MTS_IMPORT_TYPES(Texture)
 
-    VertexAttribute(const Properties &props) : MeshAttribute(props) {
+    VertexAttribute(const Properties &props)
+    : Texture(props) {
+        m_attribute_name = props.string("attribute_name");
+        m_attribute_size = props.size_("attribute_size");
+
+        m_scale = props.float_("scale", 1.f);
     }
+
+    const std::string& name() const { return m_attribute_name; }
+    size_t size() const { return m_attribute_size; }
     
     template <uint32_t Size>
     using Impl = VertexAttributeImpl<Float, Spectrum, Size>;
@@ -53,28 +59,28 @@ public:
         return { m_impl };
     }
 
-    virtual void init(const Mesh<Float, Spectrum> */*parent_mesh*/, const DynamicBuffer<Float> */*data*/) override {
-        NotImplementedError("init");
-    }
-
     MTS_DECLARE_CLASS()
-
 protected:
-    const Mesh<Float, Spectrum> *m_mesh;
-    const DynamicBuffer<Float> *m_vertex_attribute_buf;
+    std::string m_attribute_name;
+    size_t m_attribute_size;
+    float m_scale;
 
     // TODO: check if this is a valid solution
     mutable ref<Object> m_impl;
 };
 
 template <typename Float, typename Spectrum, uint32_t Size>
-class VertexAttributeImpl final : public MeshAttribute<Float, Spectrum> {
+class VertexAttributeImpl final : public Texture<Float, Spectrum> {
 public:
-    MTS_IMPORT_BASE(MeshAttribute, m_attribute_name, m_attribute_size, m_scale);
-    MTS_IMPORT_TYPES(MeshAttribute)
+    MTS_IMPORT_TYPES(Texture)
 
     VertexAttributeImpl(const Properties &props)
-    : MeshAttribute(props) {}
+    : Texture(props) {
+        m_attribute_name = props.string("attribute_name");
+        m_attribute_size = props.size_("attribute_size");
+
+        m_scale = props.float_("scale");
+    }
 
     UnpolarizedSpectrum eval(const SurfaceInteraction3f &si, Mask active) const override {
         MTS_MASKED_FUNCTION(ProfilerPhase::TextureEvaluate, active);
@@ -121,33 +127,10 @@ public:
         if constexpr (!is_array_v<Mask>)
             active = true;
 
-        // if constexpr (Size == 1) {
-        //     return si.shape->eval_attribute_1(m_attribute_name, si, active);
-        // } else {
-        //     return si.shape->eval_attribute_3(m_attribute_name, si, active);
-        // }
-
-        auto fi = m_mesh->face_indices(si.prim_index, active);
-        auto[b0, b1, b2] = m_mesh->barycentric_coordinates(si, active);
-
-        using StorageType = std::conditional_t<Size == 1, Float, Color3f>;
-
-        StorageType v0 = gather<StorageType>(*m_vertex_attribute_buf, fi[0], active),
-                    v1 = gather<StorageType>(*m_vertex_attribute_buf, fi[1], active),
-                    v2 = gather<StorageType>(*m_vertex_attribute_buf, fi[2], active);
-
-        // Barycentric interpolation
-        if constexpr (is_spectral_v<Spectrum> && Size == 3) {
-            // Evaluate spectral upsampling model from stored coefficients
-            UnpolarizedSpectrum c0, c1, c2;
-
-            c0 = srgb_model_eval<UnpolarizedSpectrum>(v0, si.wavelengths);
-            c1 = srgb_model_eval<UnpolarizedSpectrum>(v1, si.wavelengths);
-            c2 = srgb_model_eval<UnpolarizedSpectrum>(v2, si.wavelengths);
-
-            return fmadd(c0, b0, fmadd(c1, b1, c2 * b2)) * 0.00390625f;
+        if constexpr (Size == 1) {
+            return si.shape->eval_attribute_1(m_attribute_name, si, active) * m_scale;
         } else {
-            return fmadd(v0, b0, fmadd(v1, b1, v2 * b2)) * 0.00390625f;
+            return si.shape->eval_attribute_3(m_attribute_name, si, active) * m_scale;
         }
     }
 
@@ -156,11 +139,6 @@ public:
     //     callback->put_object("color0", m_color0.get());
     //     callback->put_object("color1", m_color1.get());
     // }
-
-    virtual void init(const Mesh<Float, Spectrum> *parent_mesh, const DynamicBuffer<Float> *data) override {
-        m_mesh = parent_mesh;
-        m_vertex_attribute_buf = data;
-    }
 
     std::string to_string() const override {
         std::ostringstream oss;
@@ -173,11 +151,12 @@ public:
 
     MTS_DECLARE_CLASS()
 protected:
-    const Mesh<Float, Spectrum> *m_mesh;
-    const DynamicBuffer<Float> *m_vertex_attribute_buf;
+    std::string m_attribute_name;
+    size_t m_attribute_size;
+    float m_scale;
 };
 
-MTS_IMPLEMENT_CLASS_VARIANT(VertexAttribute, MeshAttribute)
+MTS_IMPLEMENT_CLASS_VARIANT(VertexAttribute, Texture)
 MTS_EXPORT_PLUGIN(VertexAttribute, "Vertex attribute")
 
 NAMESPACE_BEGIN(detail)

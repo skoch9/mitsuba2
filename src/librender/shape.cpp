@@ -2,7 +2,6 @@
 #include <mitsuba/core/properties.h>
 #include <mitsuba/render/emitter.h>
 #include <mitsuba/render/bsdf.h>
-#include <mitsuba/render/mesh_attribute.h>
 #include <mitsuba/render/sensor.h>
 #include <mitsuba/render/medium.h>
 #include <mitsuba/core/plugin.h>
@@ -37,7 +36,6 @@ MTS_VARIANT Shape<Float, Spectrum>::Shape(const Properties &props) : m_id(props.
         Sensor *sensor = dynamic_cast<Sensor *>(kv.second.get());
         BSDF *bsdf = dynamic_cast<BSDF *>(kv.second.get());
         Medium *medium = dynamic_cast<Medium *>(kv.second.get());
-        MeshAttribute *mesh_attribute = dynamic_cast<MeshAttribute *>(kv.second.get());
 
         if (emitter) {
             if (m_emitter)
@@ -61,8 +59,6 @@ MTS_VARIANT Shape<Float, Spectrum>::Shape(const Properties &props) : m_id(props.
             if (m_sensor)
                 Throw("Only a single Sensor child object can be specified per shape.");
             m_sensor = sensor;
-        } else if (mesh_attribute) {
-            /* ignore, might be used in mesh subclass */
         } else {
             Throw("Tried to add an unsupported object of type \"%s\"", kv.second);
         }
