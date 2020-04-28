@@ -56,7 +56,7 @@ class PLYMesh final : public Mesh<Float, Spectrum> {
 public:
     MTS_IMPORT_BASE(Mesh, m_name, m_bbox, m_to_world, m_vertex_count, m_face_count,
                     m_vertex_positions_buf, m_vertex_normals_buf, m_vertex_texcoords_buf,
-                    m_faces_buf, m_vertex_attributes_bufs, m_vertex_attributes_descriptors,
+                    m_faces_buf, m_vertex_attributes,
                     m_disable_vertex_normals, has_vertex_normals, has_vertex_texcoords,
                     recompute_vertex_normals, is_emitter, emitter, is_sensor, sensor, bsdf)
     MTS_IMPORT_TYPES()
@@ -156,6 +156,8 @@ public:
                     has_vertex_texcoords = true;
                 }
 
+                std::vector<std::tuple<std::string, size_t, InputFloat*>> vertex_attributes_descriptors;
+
                 if (el.struct_->has_field("r") && el.struct_->has_field("g") && el.struct_->has_field("b")) {
                     /* all good */
                 } else if (el.struct_->has_field("red") &&
@@ -176,7 +178,7 @@ public:
                         vertex_struct->append("a", struct_type_v<InputFloat>);
                         ++field_count;
                     }
-                    m_vertex_attributes_descriptors.push_back({"color", field_count});
+                    vertex_attributes_descriptors.push_back({"color", field_count, nullptr});
                 }
 
                 // Check for any other fields.
@@ -208,7 +210,7 @@ public:
                 auto flush_attribute = [&]() {
                     for(size_t i = 0; i < current_postfix_level_index; ++i)
                         vertex_struct->append(current_prefix + "_" + postfixes[i][current_postfix_index], struct_type_v<InputFloat>);
-                    m_vertex_attributes_descriptors.push_back({current_prefix, current_postfix_level_index});
+                    vertex_attributes_descriptors.push_back({current_prefix, current_postfix_level_index, nullptr});
                     prefixes_encountered.insert(current_prefix);
                     // Reset state
                     ignore_attribute();
@@ -297,9 +299,10 @@ public:
                 if (has_vertex_texcoords)
                     m_vertex_texcoords_buf = empty<FloatStorage>(m_vertex_count * 2);
 
-                for (auto descr: m_vertex_attributes_descriptors) {
-                    m_vertex_attributes_bufs.push_back(empty<FloatStorage>(m_vertex_count * descr.size));
-                    m_vertex_attributes_bufs.back().managed();
+                for (auto& [name, size, buf_ptr]: vertex_attributes_descriptors) {
+                    m_vertex_attributes[name] = {size, empty<FloatStorage>(m_vertex_count * size)};
+                    m_vertex_attributes[name].buf.managed();
+                    buf_ptr = m_vertex_attributes[name].buf.data();
                 }
 
                 m_vertex_positions_buf.managed();
@@ -318,10 +321,6 @@ public:
                 InputFloat* position_ptr = m_vertex_positions_buf.data();
                 InputFloat* normal_ptr   = m_vertex_normals_buf.data();
                 InputFloat* texcoord_ptr = m_vertex_texcoords_buf.data();
-
-                std::vector<InputFloat*> vertex_attribute_ptrs;
-                for (auto& buf: m_vertex_attributes_bufs)
-                    vertex_attribute_ptrs.push_back(buf.data());
 
                 for (size_t i = 0; i <= packet_count; ++i) {
                     uint8_t *target = (uint8_t *) buf_o.get();
@@ -360,11 +359,10 @@ public:
 
                         size_t target_offset = sizeof(InputFloat) * (!m_disable_vertex_normals ? has_vertex_texcoords ? 8 : 6 : 3);
 
-                        for (size_t k = 0; k < vertex_attribute_ptrs.size(); ++k) {
-                            InputFloat* &buf = vertex_attribute_ptrs[k];
-                            size_t size = m_vertex_attributes_descriptors[k].size;
-                            memcpy(buf, target + target_offset, size * sizeof(InputFloat));
-                            buf += size;
+                        for (size_t k = 0; k < vertex_attributes_descriptors.size(); ++k) {
+                            auto& [name, size, buf_ptr] = vertex_attributes_descriptors[k];
+                            memcpy(buf_ptr, target + target_offset, size * sizeof(InputFloat));
+                            buf_ptr += size;
                             target_offset += size * sizeof(InputFloat);
                         }
 

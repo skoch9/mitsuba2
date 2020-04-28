@@ -95,13 +95,6 @@ public:
         return gather<Result>(m_vertex_texcoords_buf, index, active);
     }
 
-    /// Returns the vertex attribute of the vertex with index \c index
-    template <uint32_t Size, typename Index>
-    MTS_INLINE auto vertex_attribute(uint32_t attribute_index, Index index, mask_t<Index> active = true) const {
-        using Result = Point<replace_scalar_t<Index, InputFloat>, Size>;
-        return gather<Result>(m_vertex_attributes_bufs[attribute_index], index, active);
-    }
-
     /// Returns the surface area of the face with index \c index
     template <typename Index>
     auto face_area(Index index, mask_t<Index> active = true) const {
@@ -164,24 +157,18 @@ public:
                       bool shading_frame = true, Mask active = true) const override;
 
     virtual Float eval_attribute_1(const std::string& name, const SurfaceInteraction3f &si, Mask active = true) const override {
-        size_t i = 0;
-        for(; i < m_vertex_attributes_descriptors.size(); ++i)
-            if (m_vertex_attributes_descriptors[i].name == name && m_vertex_attributes_descriptors[i].size == 1)
-                break;
-        if (i == m_vertex_attributes_descriptors.size())
-            Throw("Invalid attribute name.");
+        const auto& attribute = m_vertex_attributes.find(name);
+        if (attribute == m_vertex_attributes.end() || attribute->second.size != 1)
+            Throw("Invalid attribute requested %s<1>.", name.c_str());
         
-        return eval_attribute_impl<1>(i, si, active).x();
+        return eval_attribute_impl<1>(attribute->second.buf, si, active).x();
     }
     virtual Color3f eval_attribute_3(const std::string& name, const SurfaceInteraction3f &si, Mask active = true) const override {
-        size_t i = 0;
-        for(; i < m_vertex_attributes_descriptors.size(); ++i)
-            if (m_vertex_attributes_descriptors[i].name == name && m_vertex_attributes_descriptors[i].size == 3)
-                break;
-        if (i == m_vertex_attributes_descriptors.size())
-            Throw("Invalid attribute name.");
+        const auto& attribute = m_vertex_attributes.find(name);
+        if (attribute == m_vertex_attributes.end() || attribute->second.size != 3)
+            Throw("Invalid attribute requested %s<3>.", name.c_str());
         
-        return eval_attribute_impl<3>(i, si, active);
+        return eval_attribute_impl<3>(attribute->second.buf, si, active);
     }
 
     /** \brief Ray-triangle intersection test
@@ -252,16 +239,17 @@ public:
     virtual std::string to_string() const override;
 
 private:
+
     template<uint32_t Size>
-    auto eval_attribute_impl(size_t attribute_index, const SurfaceInteraction3f& si, Mask active = true) const {
+    auto eval_attribute_impl(const DynamicBuffer<Float> &buf, const SurfaceInteraction3f& si, Mask active = true) const {
         using Result = Vector<replace_scalar_t<Mask, float>, Size>;
 
         auto fi = face_indices(si.prim_index, active);
         auto[b0, b1, b2] = barycentric_coordinates(si, active);
 
-        Result attrs[3] = { vertex_attribute<Size>(attribute_index, fi[0], active),
-                            vertex_attribute<Size>(attribute_index, fi[1], active),
-                            vertex_attribute<Size>(attribute_index, fi[2], active) };
+        Result attrs[3] = { gather<Result>(buf, fi[0], active),
+                            gather<Result>(buf, fi[1], active),
+                            gather<Result>(buf, fi[2], active) };
         Result attr = b0 * attrs[0] + b1 * attrs[1] + b2 * attrs[2];
 
         return attr;
@@ -301,12 +289,11 @@ protected:
 
     DynamicBuffer<UInt32> m_faces_buf;
 
-    struct AttributeDescriptor {
-        std::string name;
+    struct Attribute {
         size_t size;
+        DynamicBuffer<Float> buf;
     };
-    std::vector<AttributeDescriptor> m_vertex_attributes_descriptors;
-    std::vector<DynamicBuffer<Float>> m_vertex_attributes_bufs;
+    std::unordered_map<std::string, Attribute> m_vertex_attributes;
 
     // END NEW DESIGN
 
