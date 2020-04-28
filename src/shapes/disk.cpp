@@ -100,7 +100,6 @@ public:
             emitter()->set_shape(this);
         if (is_sensor())
             sensor()->set_shape(this);
-        bsdf()->prepare_attributes(this);
     }
 
     ScalarBoundingBox3f bbox() const override {

@@ -13,7 +13,7 @@ NAMESPACE_BEGIN(mitsuba)
 template <typename Float, typename Spectrum>
 class MTS_EXPORT_RENDER Mesh : public Shape<Float, Spectrum> {
 public:
-    MTS_IMPORT_TYPES()
+    MTS_IMPORT_TYPES(MeshAttribute)
     MTS_IMPORT_BASE(Shape, m_mesh)
 
     // Mesh is always stored in single precision
@@ -102,7 +102,6 @@ public:
         return gather<Result>(m_vertex_attributes_bufs[attribute_index], index, active);
     }
 
-
     /// Returns the surface area of the face with index \c index
     template <typename Index>
     auto face_area(Index index, mask_t<Index> active = true) const {
@@ -164,18 +163,25 @@ public:
     normal_derivative(const SurfaceInteraction3f &si,
                       bool shading_frame = true, Mask active = true) const override;
 
-    // Evaluates the vertex attribute given by index and Size, at surface interaction si
-    virtual Vector1f eval_attribute_1(const SurfaceInteraction3f& si, int32_t attribute_index, Mask active = true) const override {
-        return eval_attribute_impl<1>(si, attribute_index, active);
+    virtual Float eval_attribute_1(const std::string& name, const SurfaceInteraction3f &si, Mask active = true) const override {
+        size_t i = 0;
+        for(; i < m_vertex_attributes_descriptors.size(); ++i)
+            if (m_vertex_attributes_descriptors[i].name == name && m_vertex_attributes_descriptors[i].size == 1)
+                break;
+        if (i == m_vertex_attributes_descriptors.size())
+            Throw("Invalid attribute name.");
+        
+        return eval_attribute_impl<1>(i, si, active).x();
     }
-    virtual Vector2f eval_attribute_2(const SurfaceInteraction3f& si, int32_t attribute_index, Mask active = true) const override {
-        return eval_attribute_impl<2>(si, attribute_index, active);
-    }
-    virtual Vector3f eval_attribute_3(const SurfaceInteraction3f& si, int32_t attribute_index, Mask active = true) const override {
-        return eval_attribute_impl<3>(si, attribute_index, active);
-    }
-    virtual Vector4f eval_attribute_4(const SurfaceInteraction3f& si, int32_t attribute_index, Mask active = true) const override {
-        return eval_attribute_impl<4>(si, attribute_index, active);
+    virtual Color3f eval_attribute_3(const std::string& name, const SurfaceInteraction3f &si, Mask active = true) const override {
+        size_t i = 0;
+        for(; i < m_vertex_attributes_descriptors.size(); ++i)
+            if (m_vertex_attributes_descriptors[i].name == name && m_vertex_attributes_descriptors[i].size == 3)
+                break;
+        if (i == m_vertex_attributes_descriptors.size())
+            Throw("Invalid attribute name.");
+        
+        return eval_attribute_impl<3>(i, si, active);
     }
 
     /** \brief Ray-triangle intersection test
@@ -247,15 +253,8 @@ public:
 
 private:
     template<uint32_t Size>
-    auto eval_attribute_impl(const SurfaceInteraction3f& si, int32_t attribute_index, Mask active = true) const {
+    auto eval_attribute_impl(size_t attribute_index, const SurfaceInteraction3f& si, Mask active = true) const {
         using Result = Vector<replace_scalar_t<Mask, float>, Size>;
-        if (attribute_index < 0 || attribute_index >= (int32_t)Shape<Float, Spectrum>::m_vertex_attributes_descriptors.size()) {
-            // Log(Warn, "Mesh::eval_attibute(): Couldn't find vertex attribute named '%s'", name);
-            return zero<Result>();
-        }
-        // This should be true
-        // assert(i >= 0 && i < m_vertex_attributes_descriptors.size());
-        // assert(Size == m_vertex_attributes_descriptors[attribute_index].size);
 
         auto fi = face_indices(si.prim_index, active);
         auto[b0, b1, b2] = barycentric_coordinates(si, active);
@@ -265,7 +264,7 @@ private:
                             vertex_attribute<Size>(attribute_index, fi[2], active) };
         Result attr = b0 * attrs[0] + b1 * attrs[1] + b2 * attrs[2];
 
-        return attr;
+        return attr / 256.f;
     }
 
 protected:
@@ -302,7 +301,13 @@ protected:
 
     DynamicBuffer<UInt32> m_faces_buf;
 
+    struct AttributeDescriptor {
+        std::string name;
+        size_t size;
+    };
+    std::vector<AttributeDescriptor> m_vertex_attributes_descriptors;
     std::vector<DynamicBuffer<Float>> m_vertex_attributes_bufs;
+    std::vector<ref<MeshAttribute>> m_mesh_attributes;
 
     // END NEW DESIGN
 

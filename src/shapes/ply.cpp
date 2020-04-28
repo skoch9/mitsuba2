@@ -2,6 +2,7 @@
 #include <mitsuba/render/emitter.h>
 #include <mitsuba/render/sensor.h>
 #include <mitsuba/render/bsdf.h>
+#include <mitsuba/render/mesh_attribute.h>
 #include <mitsuba/core/fstream.h>
 #include <mitsuba/core/mstream.h>
 #include <mitsuba/core/fresolver.h>
@@ -10,6 +11,7 @@
 #include <mitsuba/core/timer.h>
 #include <enoki/half.h>
 #include <unordered_map>
+#include <unordered_set>
 #include <fstream>
 
 NAMESPACE_BEGIN(mitsuba)
@@ -55,7 +57,7 @@ class PLYMesh final : public Mesh<Float, Spectrum> {
 public:
     MTS_IMPORT_BASE(Mesh, m_name, m_bbox, m_to_world, m_vertex_count, m_face_count,
                     m_vertex_positions_buf, m_vertex_normals_buf, m_vertex_texcoords_buf,
-                    m_faces_buf, m_vertex_attributes_bufs, m_vertex_attributes_descriptors,
+                    m_faces_buf, m_vertex_attributes_bufs, m_vertex_attributes_descriptors, m_mesh_attributes,
                     m_disable_vertex_normals, has_vertex_normals, has_vertex_texcoords,
                     recompute_vertex_normals, is_emitter, emitter, is_sensor, sensor, bsdf)
     MTS_IMPORT_TYPES()
@@ -177,6 +179,107 @@ public:
                     }
                     m_vertex_attributes_descriptors.push_back({"color", field_count});
                 }
+
+                // Check for any other fields.
+                // Fields in the same attribute must be contiguous, have the same prefix, and postfix of the same category.
+                // Valid categories are [x, y, z, w], [r, g, b, a], [0, 1, 2, 3], [1, 2, 3, 4]
+
+                constexpr size_t valid_postfix_count = 4;
+                const char* postfixes[4] = {
+                    "xr01",
+                    "yg12",
+                    "zb23",
+                    "wa34"
+                };
+
+                std::unordered_set<std::string> reserved_names = {"x", "y", "z", "nx", "ny", "nz", "u", "v", "r", "g", "b", "a"};
+                std::unordered_set<std::string> prefixes_encountered;
+                std::string current_prefix = "";
+                size_t current_postfix_index = 0;
+                size_t current_postfix_level_index = 0;
+                bool reading_attribute = false;
+
+                auto ignore_attribute = [&]() {
+                    // Reset state
+                    current_prefix = "";
+                    current_postfix_index = 0;
+                    current_postfix_level_index = 0;
+                    reading_attribute = false;
+                };
+                auto flush_attribute = [&]() {
+                    for(size_t i = 0; i < current_postfix_level_index; ++i)
+                        vertex_struct->append(current_prefix + "_" + postfixes[i][current_postfix_index], struct_type_v<InputFloat>);
+                    m_vertex_attributes_descriptors.push_back({current_prefix, current_postfix_level_index});
+                    prefixes_encountered.insert(current_prefix);
+                    // Reset state
+                    ignore_attribute();
+                };
+
+                size_t field_count = el.struct_->field_count();
+                for (size_t i = 0; i < field_count; ++i) {
+                    const Struct::Field& field = el.struct_->operator[](i);
+                    if (reserved_names.find(field.name) != reserved_names.end())
+                        continue;
+                        
+                    auto pos = field.name.find_last_of('_');
+                    if (pos == std::string::npos) {
+                        Log(Warn, "Attribute without postifx are not handled for now: attribute \"%s\" ignored.", field.name.c_str());
+                        if (reading_attribute)
+                            flush_attribute();
+                        continue; // Don't do anything with attributes without postfix (for now)
+                    }
+
+                    const std::string postfix = field.name.substr(pos+1);
+                    if (postfix.size() != 1) {
+                        Log(Warn, "Attribute postfix can only be one letter long.");
+                        if (reading_attribute)
+                            flush_attribute();
+                        continue;
+                    }
+
+                    const std::string prefix = field.name.substr(0, pos);
+                    if (reading_attribute && prefix != current_prefix)
+                        flush_attribute();
+
+                    if (!reading_attribute && prefixes_encountered.find(prefix) != prefixes_encountered.end()) {
+                        Log(Warn, "This attribute prefix has already been encountered: attribute \"%s\" ignored.", field.name.c_str());
+                        while(i < field_count && el.struct_->operator[](i).name.find(prefix) == 0) ++i;
+                        if (i == field_count)
+                            break;
+                        continue;
+                    }
+
+                    char chpostfix = postfix[0];
+                    // If this is the first occurence of this attribute, we look for the postfix index
+                    if (!reading_attribute) {
+                        int32_t postfix_index = -1;
+                        for (size_t j = 0; j < valid_postfix_count; ++j) {
+                            if (chpostfix == postfixes[0][j]) {
+                                postfix_index = (int32_t)j;
+                                break;
+                            }
+                        }
+                        if (postfix_index == -1) {
+                            Log(Warn, "Attribute can't start with postfix %c.", chpostfix);
+                            continue;
+                        }
+                        reading_attribute = true;
+                        current_postfix_index = postfix_index;
+                        current_prefix = prefix;
+                    } else { // otherwise the postfix sequence should follow the naming rules
+                        if (chpostfix != postfixes[current_postfix_level_index][current_postfix_index]) {
+                            Log(Warn, "Attribute postfix sequence is invalid: attribute \"%s\" ignored.", current_prefix.c_str());
+                            ignore_attribute();
+                            while(i < field_count && el.struct_->operator[](i).name.find(prefix) == 0) ++i;
+                            if (i == field_count)
+                                break;
+                        }
+                    }
+                    // In both cases, we increment the postfix_level_index
+                    ++current_postfix_level_index;
+                }
+                if (reading_attribute)
+                    flush_attribute();
 
                 size_t i_struct_size = el.struct_->size();
                 size_t o_struct_size = vertex_struct->size();
@@ -349,7 +452,33 @@ public:
             emitter()->set_shape(this);
         if (is_sensor())
             sensor()->set_shape(this);
-        bsdf()->prepare_attributes(this);
+
+        std::vector<bool> mesh_attribute_found_data(m_mesh_attributes.size());
+        std::fill(mesh_attribute_found_data.begin(), mesh_attribute_found_data.end(), false);
+
+        for (size_t i = 0; i < m_vertex_attributes_descriptors.size(); ++i) {
+            const std::string& attr_name = m_vertex_attributes_descriptors[i].name;
+            size_t attr_size = m_vertex_attributes_descriptors[i].size;
+            size_t j = 0;
+            for (; j < m_mesh_attributes.size(); ++j) {
+                if (attr_name == m_mesh_attributes[j]->name() && attr_size == m_mesh_attributes[j]->size()) {
+                    m_mesh_attributes[j]->init(this, &m_vertex_attributes_bufs[i]);
+                    mesh_attribute_found_data[j] = true;
+                    break;
+                }
+            }
+            if (j == m_mesh_attributes.size())
+                Log(Warn, "Vertex attribute \"%s\" was provided in ply file, but wasn't used.", attr_name);
+        }
+        bool has_missing_mesh_attribute_data = false;
+        for (size_t j = 0; j < m_mesh_attributes.size(); ++j) {
+            if (!mesh_attribute_found_data[j]) {
+                has_missing_mesh_attribute_data = true;
+                Log(Warn, "Mesh attribute \"%s\" was requested in xml but wasn't present in ply.", m_mesh_attributes[j]->name());
+            }
+        }
+        if (has_missing_mesh_attribute_data)
+            Throw("Mesh missed some attributes.");
     }
 
 private:

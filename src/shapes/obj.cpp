@@ -1,5 +1,6 @@
 #include <mitsuba/render/mesh.h>
 #include <mitsuba/render/emitter.h>
+#include <mitsuba/render/bsdf.h>
 #include <mitsuba/render/sensor.h>
 #include <mitsuba/core/fresolver.h>
 #include <mitsuba/core/properties.h>
@@ -77,7 +78,7 @@ public:
     MTS_IMPORT_BASE(Mesh, m_name, m_bbox, m_to_world, m_vertex_count, m_face_count,
                     m_vertex_positions_buf, m_vertex_normals_buf, m_vertex_texcoords_buf,
                     m_faces_buf, m_disable_vertex_normals, recompute_vertex_normals,
-                    has_vertex_normals, is_emitter, emitter, is_sensor, sensor)
+                    has_vertex_normals, is_emitter, emitter, is_sensor, sensor, bsdf)
     MTS_IMPORT_TYPES()
 
     using typename Base::ScalarSize;
@@ -344,7 +345,6 @@ public:
             emitter()->set_shape(this);
         if (is_sensor())
             sensor()->set_shape(this);
-        bsdf()->prepare_attributes(this);
     }
 
     MTS_DECLARE_CLASS()

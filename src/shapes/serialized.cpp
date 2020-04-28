@@ -1,6 +1,7 @@
 #include <mitsuba/render/mesh.h>
 #include <mitsuba/render/emitter.h>
 #include <mitsuba/render/sensor.h>
+#include <mitsuba/render/bsdf.h>
 #include <mitsuba/core/fstream.h>
 #include <mitsuba/core/zstream.h>
 #include <mitsuba/core/fresolver.h>
@@ -147,7 +148,7 @@ public:
                     m_vertex_positions_buf, m_vertex_normals_buf, m_vertex_texcoords_buf,
                     m_faces_buf, m_disable_vertex_normals, has_vertex_normals, has_vertex_texcoords,
                     recompute_vertex_normals, vertex_position, vertex_normal, is_emitter, emitter,
-                    is_sensor, sensor)
+                    is_sensor, sensor, bsdf)
     MTS_IMPORT_TYPES()
 
     using typename Base::ScalarSize;
@@ -337,7 +338,6 @@ public:
             emitter()->set_shape(this);
         if (is_sensor())
             sensor()->set_shape(this);
-        bsdf()->prepare_attributes(this);
     }
 
     void read_helper(Stream *stream, bool dp, InputFloat* dst, size_t dim) {

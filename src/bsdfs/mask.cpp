@@ -161,10 +161,6 @@ public:
     MTS_INLINE Float eval_opacity(const SurfaceInteraction3f &si, Mask active) const {
         return clamp(m_opacity->eval_1(si, active), 0.f, 1.f);
     }
-    
-    virtual void prepare_attributes(const Shape<Float, Spectrum>* parent_shape) override {
-        m_nested_bsdf->prepare_attributes(parent_shape);
-    }
 
     void traverse(TraversalCallback *callback) override {
         callback->put_object("opacity", m_opacity.get());
