@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 from typing import Union, Tuple
 import enoki as ek
+from mitsuba.python.util import is_differentiable
 
 
 def _render_helper(scene, spp=None, sensor_index=0):
@@ -209,7 +210,7 @@ class Optimizer:
         """
         self.set_learning_rate(lr)
         self.params = params
-        if not params.all_differentiable():
+        if not all(is_differentiable(params[k]) for k in params.keys()):
             raise Exception('Optimizer.__init__(): all parameters should '
                             'be differentiable!')
         self.state = {}
