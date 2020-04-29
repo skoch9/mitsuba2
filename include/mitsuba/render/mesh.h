@@ -222,10 +222,15 @@ public:
 
     virtual Float pdf_position(const PositionSample3f &ps, Mask active = true) const override;
 
-    virtual void fill_surface_interaction(const Ray3f &ray,
-                                          const Float *cache,
-                                          SurfaceInteraction3f &si,
-                                          Mask active = true) const override;
+    virtual SurfaceInteraction3f fill_surface_interaction(const Ray3f &ray,
+                                                          const Float *cache,
+                                                          const UInt32 &cache_indices,
+                                                          SurfaceInteraction3f si,
+                                                          Mask active = true) const override;
+
+    virtual std::pair<Point3f, Normal3f>
+    differentiable_position(const SurfaceInteraction3f &si,
+                            Mask active = true) const override;
 
     virtual std::pair<Vector3f, Vector3f>
     normal_derivative(const SurfaceInteraction3f &si,
@@ -248,7 +253,7 @@ public:
      *    barycentric coordinates
      */
     MTS_INLINE std::tuple<Mask, Float, Float, Float>
-    ray_intersect_triangle(const ScalarIndex &index, const Ray3f &ray,
+    ray_intersect_triangle(const UInt32 &index, const Ray3f &ray,
                            identity_t<Mask> active = true) const {
         auto fi = face_indices(index);
 
@@ -378,6 +383,7 @@ NAMESPACE_END(mitsuba)
 // Enable usage of array pointers for our types
 ENOKI_CALL_SUPPORT_TEMPLATE_BEGIN(mitsuba::Mesh)
     ENOKI_CALL_SUPPORT_METHOD(fill_surface_interaction)
+    ENOKI_CALL_SUPPORT_METHOD(differentiable_position)
     ENOKI_CALL_SUPPORT_GETTER_TYPE(faces, m_faces, uint8_t*)
     ENOKI_CALL_SUPPORT_GETTER_TYPE(vertices, m_vertices, uint8_t*)
 ENOKI_CALL_SUPPORT_TEMPLATE_END(mitsuba::Mesh)
