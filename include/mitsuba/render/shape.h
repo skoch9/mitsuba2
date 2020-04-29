@@ -246,8 +246,10 @@ public:
                                                             bool shading_frame = true,
                                                             Mask active        = true) const;
 
-    virtual Float eval_attribute_1(const std::string& /*name*/, const SurfaceInteraction3f &/*si*/, Mask /*active*/ = true) const { return zero<Float>(); }
-    virtual Color3f eval_attribute_3(const std::string& /*name*/, const SurfaceInteraction3f &/*si*/, Mask /*active*/ = true) const { return zero<Color3f>(); }
+    virtual Float eval_vertex_attribute_1(const std::string& /*name*/, const SurfaceInteraction3f &/*si*/, Mask /*active*/ = true) const { return zero<Float>(); }
+    virtual Color3f eval_vertex_attribute_3(const std::string& /*name*/, const SurfaceInteraction3f &/*si*/, Mask /*active*/ = true) const { return zero<Color3f>(); }
+    virtual Float eval_face_attribute_1(const std::string& /*name*/, const SurfaceInteraction3f &/*si*/, Mask /*active*/ = true) const { return zero<Float>(); }
+    virtual Color3f eval_face_attribute_3(const std::string& /*name*/, const SurfaceInteraction3f &/*si*/, Mask /*active*/ = true) const { return zero<Color3f>(); }
 
     //! @}
     // =============================================================
@@ -358,8 +360,10 @@ NAMESPACE_END(mitsuba)
 ENOKI_CALL_SUPPORT_TEMPLATE_BEGIN(mitsuba::Shape)
     ENOKI_CALL_SUPPORT_METHOD(normal_derivative)
     ENOKI_CALL_SUPPORT_METHOD(fill_surface_interaction)
-    ENOKI_CALL_SUPPORT_METHOD(eval_attribute_1)
-    ENOKI_CALL_SUPPORT_METHOD(eval_attribute_3)
+    ENOKI_CALL_SUPPORT_METHOD(eval_vertex_attribute_1)
+    ENOKI_CALL_SUPPORT_METHOD(eval_vertex_attribute_3)
+    ENOKI_CALL_SUPPORT_METHOD(eval_face_attribute_1)
+    ENOKI_CALL_SUPPORT_METHOD(eval_face_attribute_3)
     ENOKI_CALL_SUPPORT_GETTER_TYPE(emitter, m_emitter, const typename Class::Emitter *)
     ENOKI_CALL_SUPPORT_GETTER_TYPE(sensor, m_sensor, const typename Class::Sensor *)
     ENOKI_CALL_SUPPORT_GETTER_TYPE(bsdf, m_bsdf, const typename Class::BSDF *)

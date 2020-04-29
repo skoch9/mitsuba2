@@ -13,7 +13,7 @@ NAMESPACE_BEGIN(mitsuba)
 template <typename Float, typename Spectrum>
 class MTS_EXPORT_RENDER Mesh : public Shape<Float, Spectrum> {
 public:
-    MTS_IMPORT_TYPES(MeshAttribute)
+    MTS_IMPORT_TYPES()
     MTS_IMPORT_BASE(Shape, m_mesh)
 
     // Mesh is always stored in single precision
@@ -156,19 +156,34 @@ public:
     normal_derivative(const SurfaceInteraction3f &si,
                       bool shading_frame = true, Mask active = true) const override;
 
-    virtual Float eval_attribute_1(const std::string& name, const SurfaceInteraction3f &si, Mask active = true) const override {
-        const auto& attribute = m_vertex_attributes.find(name);
-        if (attribute == m_vertex_attributes.end() || attribute->second.size != 1)
-            Throw("Invalid attribute requested %s<1>.", name.c_str());
+    virtual Float eval_vertex_attribute_1(const std::string& name, const SurfaceInteraction3f &si, Mask active = true) const override {
+        const auto& attribute = m_mesh_attributes.find({ name, MeshAttributeType::VERTEX, 1 });
+        if (attribute == m_mesh_attributes.end())
+            Throw("Invalid vertex attribute requested %s<1>.", name.c_str());
         
-        return eval_attribute_impl<1>(attribute->second.buf, si, active).x();
+        return eval_vertex_attribute_impl<1>(attribute->second, si, active).x();
     }
-    virtual Color3f eval_attribute_3(const std::string& name, const SurfaceInteraction3f &si, Mask active = true) const override {
-        const auto& attribute = m_vertex_attributes.find(name);
-        if (attribute == m_vertex_attributes.end() || attribute->second.size != 3)
-            Throw("Invalid attribute requested %s<3>.", name.c_str());
+    virtual Color3f eval_vertex_attribute_3(const std::string& name, const SurfaceInteraction3f &si, Mask active = true) const override {
+        const auto& attribute = m_mesh_attributes.find({ name, MeshAttributeType::VERTEX, 3 });
+        if (attribute == m_mesh_attributes.end())
+            Throw("Invalid vertex attribute requested %s<3>.", name.c_str());
         
-        return eval_attribute_impl<3>(attribute->second.buf, si, active);
+        return eval_vertex_attribute_impl<3>(attribute->second, si, active);
+    }
+
+    virtual Float eval_face_attribute_1(const std::string& name, const SurfaceInteraction3f &si, Mask active = true) const override {
+        const auto& attribute = m_mesh_attributes.find({ name, MeshAttributeType::FACE, 1 });
+        if (attribute == m_mesh_attributes.end())
+            Throw("Invalid face attribute requested %s<1>.", name.c_str());
+        
+        return eval_face_attribute_impl<1>(attribute->second, si, active).x();
+    }
+    virtual Color3f eval_face_attribute_3(const std::string& name, const SurfaceInteraction3f &si, Mask active = true) const override {
+        const auto& attribute = m_mesh_attributes.find({ name, MeshAttributeType::FACE, 3 });
+        if (attribute == m_mesh_attributes.end())
+            Throw("Invalid face attribute requested %s<3>.", name.c_str());
+        
+        return eval_face_attribute_impl<3>(attribute->second, si, active);
     }
 
     /** \brief Ray-triangle intersection test
@@ -241,7 +256,7 @@ public:
 private:
 
     template<uint32_t Size>
-    auto eval_attribute_impl(const DynamicBuffer<Float> &buf, const SurfaceInteraction3f& si, Mask active = true) const {
+    auto eval_vertex_attribute_impl(const DynamicBuffer<Float> &buf, const SurfaceInteraction3f& si, Mask active = true) const {
         using Result = Vector<replace_scalar_t<Mask, float>, Size>;
 
         auto fi = face_indices(si.prim_index, active);
@@ -253,6 +268,12 @@ private:
         Result attr = b0 * attrs[0] + b1 * attrs[1] + b2 * attrs[2];
 
         return attr;
+    }
+
+    template<uint32_t Size>
+    auto eval_face_attribute_impl(const DynamicBuffer<Float> &buf, const SurfaceInteraction3f& si, Mask active = true) const {
+        using Result = Vector<replace_scalar_t<Mask, float>, Size>;
+        return gather<Result>(buf, si.prim_index, active);
     }
 
 protected:
@@ -275,6 +296,28 @@ protected:
     }
 
     MTS_DECLARE_CLASS()
+
+protected:
+    enum MeshAttributeType {
+        VERTEX, FACE
+    };
+    struct MeshAttribute {
+        std::string name;
+        MeshAttributeType type;
+        size_t size;
+        
+        bool operator==(const MeshAttribute &other) const {
+            return name == other.name && type == other.type && size == other.size;
+        }
+    };
+    struct MeshAttributeHasher {
+        std::size_t operator()(const MeshAttribute& attr) const {
+            return ((std::hash<std::string>()(attr.name) ^
+                    (std::hash<int>()((int)attr.type) << 1)) >> 1) ^
+                    (std::hash<size_t>()(attr.size) << 1);
+        }
+    };
+
 protected:
     std::string m_name;
     ScalarBoundingBox3f m_bbox;
@@ -289,11 +332,7 @@ protected:
 
     DynamicBuffer<UInt32> m_faces_buf;
 
-    struct Attribute {
-        size_t size;
-        DynamicBuffer<Float> buf;
-    };
-    std::unordered_map<std::string, Attribute> m_vertex_attributes;
+    std::unordered_map<MeshAttribute, DynamicBuffer<Float>, MeshAttributeHasher> m_mesh_attributes;
 
     // END NEW DESIGN
 

@@ -56,7 +56,7 @@ class PLYMesh final : public Mesh<Float, Spectrum> {
 public:
     MTS_IMPORT_BASE(Mesh, m_name, m_bbox, m_to_world, m_vertex_count, m_face_count,
                     m_vertex_positions_buf, m_vertex_normals_buf, m_vertex_texcoords_buf,
-                    m_faces_buf, m_vertex_attributes,
+                    m_faces_buf, m_mesh_attributes,
                     m_disable_vertex_normals, has_vertex_normals, has_vertex_texcoords,
                     recompute_vertex_normals, is_emitter, emitter, is_sensor, sensor, bsdf)
     MTS_IMPORT_TYPES()
@@ -156,131 +156,10 @@ public:
                     has_vertex_texcoords = true;
                 }
 
+                // Look for other fields
+                std::unordered_set<std::string> reserved_names = { "x", "y", "z", "nx", "ny", "nz", "u", "v" };
                 std::vector<std::tuple<std::string, size_t, InputFloat*>> vertex_attributes_descriptors;
-
-                if (el.struct_->has_field("r") && el.struct_->has_field("g") && el.struct_->has_field("b")) {
-                    /* all good */
-                } else if (el.struct_->has_field("red") &&
-                           el.struct_->has_field("green") &&
-                           el.struct_->has_field("blue")) {
-                    el.struct_->field("red").name = "r";
-                    el.struct_->field("green").name = "g";
-                    el.struct_->field("blue").name = "b";
-                    if (el.struct_->has_field("alpha"))
-                        el.struct_->field("alpha").name = "a";
-                }
-                if (el.struct_->has_field("r") && el.struct_->has_field("g") && el.struct_->has_field("b")) {
-                    // vertex_attribute_structs.push_back(new Struct());
-                    size_t field_count = 3;
-                    for (auto name : { "r", "g", "b" })
-                        vertex_struct->append(name, struct_type_v<InputFloat>);
-                    if (el.struct_->has_field("a")) {
-                        vertex_struct->append("a", struct_type_v<InputFloat>);
-                        ++field_count;
-                    }
-                    vertex_attributes_descriptors.push_back({"color", field_count, nullptr});
-                }
-
-                // Check for any other fields.
-                // Fields in the same attribute must be contiguous, have the same prefix, and postfix of the same category.
-                // Valid categories are [x, y, z, w], [r, g, b, a], [0, 1, 2, 3], [1, 2, 3, 4]
-
-                constexpr size_t valid_postfix_count = 4;
-                const char* postfixes[4] = {
-                    "xr01",
-                    "yg12",
-                    "zb23",
-                    "wa34"
-                };
-
-                std::unordered_set<std::string> reserved_names = {"x", "y", "z", "nx", "ny", "nz", "u", "v", "r", "g", "b", "a"};
-                std::unordered_set<std::string> prefixes_encountered;
-                std::string current_prefix = "";
-                size_t current_postfix_index = 0;
-                size_t current_postfix_level_index = 0;
-                bool reading_attribute = false;
-
-                auto ignore_attribute = [&]() {
-                    // Reset state
-                    current_prefix = "";
-                    current_postfix_index = 0;
-                    current_postfix_level_index = 0;
-                    reading_attribute = false;
-                };
-                auto flush_attribute = [&]() {
-                    for(size_t i = 0; i < current_postfix_level_index; ++i)
-                        vertex_struct->append(current_prefix + "_" + postfixes[i][current_postfix_index], struct_type_v<InputFloat>);
-                    vertex_attributes_descriptors.push_back({current_prefix, current_postfix_level_index, nullptr});
-                    prefixes_encountered.insert(current_prefix);
-                    // Reset state
-                    ignore_attribute();
-                };
-
-                size_t field_count = el.struct_->field_count();
-                for (size_t i = 0; i < field_count; ++i) {
-                    const Struct::Field& field = el.struct_->operator[](i);
-                    if (reserved_names.find(field.name) != reserved_names.end())
-                        continue;
-                        
-                    auto pos = field.name.find_last_of('_');
-                    if (pos == std::string::npos) {
-                        Log(Warn, "Attribute without postifx are not handled for now: attribute \"%s\" ignored.", field.name.c_str());
-                        if (reading_attribute)
-                            flush_attribute();
-                        continue; // Don't do anything with attributes without postfix (for now)
-                    }
-
-                    const std::string postfix = field.name.substr(pos+1);
-                    if (postfix.size() != 1) {
-                        Log(Warn, "Attribute postfix can only be one letter long.");
-                        if (reading_attribute)
-                            flush_attribute();
-                        continue;
-                    }
-
-                    const std::string prefix = field.name.substr(0, pos);
-                    if (reading_attribute && prefix != current_prefix)
-                        flush_attribute();
-
-                    if (!reading_attribute && prefixes_encountered.find(prefix) != prefixes_encountered.end()) {
-                        Log(Warn, "This attribute prefix has already been encountered: attribute \"%s\" ignored.", field.name.c_str());
-                        while(i < field_count && el.struct_->operator[](i).name.find(prefix) == 0) ++i;
-                        if (i == field_count)
-                            break;
-                        continue;
-                    }
-
-                    char chpostfix = postfix[0];
-                    // If this is the first occurence of this attribute, we look for the postfix index
-                    if (!reading_attribute) {
-                        int32_t postfix_index = -1;
-                        for (size_t j = 0; j < valid_postfix_count; ++j) {
-                            if (chpostfix == postfixes[0][j]) {
-                                postfix_index = (int32_t)j;
-                                break;
-                            }
-                        }
-                        if (postfix_index == -1) {
-                            Log(Warn, "Attribute can't start with postfix %c.", chpostfix);
-                            continue;
-                        }
-                        reading_attribute = true;
-                        current_postfix_index = postfix_index;
-                        current_prefix = prefix;
-                    } else { // otherwise the postfix sequence should follow the naming rules
-                        if (chpostfix != postfixes[current_postfix_level_index][current_postfix_index]) {
-                            Log(Warn, "Attribute postfix sequence is invalid: attribute \"%s\" ignored.", current_prefix.c_str());
-                            ignore_attribute();
-                            while(i < field_count && el.struct_->operator[](i).name.find(prefix) == 0) ++i;
-                            if (i == field_count)
-                                break;
-                        }
-                    }
-                    // In both cases, we increment the postfix_level_index
-                    ++current_postfix_level_index;
-                }
-                if (reading_attribute)
-                    flush_attribute();
+                find_other_fields(vertex_attributes_descriptors, vertex_struct, el.struct_, reserved_names);
 
                 size_t i_struct_size = el.struct_->size();
                 size_t o_struct_size = vertex_struct->size();
@@ -299,10 +178,16 @@ public:
                 if (has_vertex_texcoords)
                     m_vertex_texcoords_buf = empty<FloatStorage>(m_vertex_count * 2);
 
+                // for (auto& [name, size, buf_ptr]: vertex_attributes_descriptors) {
+                //     MeshAttribute attr = { name, Mesh<Float, Spectrum>::MeshAttributeType::VERTEX, size };
+                //     m_mesh_attributes[attr] = empty<FloatStorage>(m_vertex_count * size);
+                //     m_mesh_attributes[attr].buf.managed();
+                //     buf_ptr = m_mesh_attributes[attr].buf.data();
+                // }
                 for (auto& [name, size, buf_ptr]: vertex_attributes_descriptors) {
-                    m_vertex_attributes[name] = {size, empty<FloatStorage>(m_vertex_count * size)};
-                    m_vertex_attributes[name].buf.managed();
-                    buf_ptr = m_vertex_attributes[name].buf.data();
+                    auto[it, success] = m_mesh_attributes.insert({{ name, Mesh<Float, Spectrum>::MeshAttributeType::VERTEX, size }, empty<FloatStorage>(m_vertex_count * size)});
+                    it->second.managed();
+                    buf_ptr = it->second.data();
                 }
 
                 m_vertex_positions_buf.managed();
@@ -377,9 +262,14 @@ public:
                     field_name = "vertex_indices";
                 else
                     fail("vertex_index/vertex_indices property not found");
-
+                
                 for (size_t i = 0; i < 3; ++i)
                     face_struct->append(tfm::format("i%i", i), struct_type_v<ScalarIndex>);
+
+                // Look for other fields
+                std::unordered_set<std::string> reserved_names = { "vertex_index.count", "vertex_indices.count", "i0", "i1", "i2" };
+                std::vector<std::tuple<std::string, size_t, InputFloat*>> face_attributes_descriptors;
+                find_other_fields(face_attributes_descriptors, face_struct, el.struct_, reserved_names);
 
                 size_t i_struct_size = el.struct_->size();
                 size_t o_struct_size = face_struct->size();
@@ -394,6 +284,12 @@ public:
                 m_face_count = (ScalarSize) el.count;
                 m_faces_buf = empty<DynamicBuffer<UInt32>>(m_face_count * 3);
                 m_faces_buf.managed();
+
+                for (auto& [name, size, buf_ptr]: face_attributes_descriptors) {
+                    auto[it, success] = m_mesh_attributes.insert({{ name, Mesh<Float, Spectrum>::MeshAttributeType::FACE, size }, empty<FloatStorage>(m_face_count * size)});
+                    it->second.managed();
+                    buf_ptr = it->second.data();
+                }
 
                 ScalarIndex* face_ptr = m_faces_buf.data();
 
@@ -419,6 +315,15 @@ public:
                         ScalarIndex3 fi = enoki::load<ScalarIndex3>(target);
                         store_unaligned(face_ptr, fi);
                         face_ptr += 3;
+
+                        size_t target_offset = sizeof(InputFloat) * 3;
+                        for (size_t k = 0; k < face_attributes_descriptors.size(); ++k) {
+                            auto& [name, size, buf_ptr] = face_attributes_descriptors[k];
+                            memcpy(buf_ptr, target + target_offset, size * sizeof(InputFloat));
+                            buf_ptr += size;
+                            target_offset += size * sizeof(InputFloat);
+                        }
+
                         target += o_struct_size;
                     }
                 }
@@ -688,6 +593,135 @@ private:
             Throw("Trailing tokens after end of PLY file");
         out->seek(0);
         return out;
+    }
+
+    void find_other_fields(std::vector<std::tuple<std::string, size_t, InputFloat*>> &vertex_attributes_descriptors, ref<Struct> target_struct,
+        ref<Struct> ref_struct, std::unordered_set<std::string> &reserved_names) {
+
+        if (ref_struct->has_field("r") && ref_struct->has_field("g") && ref_struct->has_field("b")) {
+            /* all good */
+        } else if (ref_struct->has_field("red") &&
+                    ref_struct->has_field("green") &&
+                    ref_struct->has_field("blue")) {
+            ref_struct->field("red").name = "r";
+            ref_struct->field("green").name = "g";
+            ref_struct->field("blue").name = "b";
+            if (ref_struct->has_field("alpha"))
+                ref_struct->field("alpha").name = "a";
+        }
+        if (ref_struct->has_field("r") && ref_struct->has_field("g") && ref_struct->has_field("b")) {
+            // vertex_attribute_structs.push_back(new Struct());
+            size_t field_count = 3;
+            for (auto name : { "r", "g", "b" })
+                target_struct->append(name, struct_type_v<InputFloat>);
+            if (ref_struct->has_field("a")) {
+                target_struct->append("a", struct_type_v<InputFloat>);
+                ++field_count;
+            }
+            vertex_attributes_descriptors.push_back({"color", field_count, nullptr});
+        }
+
+        reserved_names.insert({ "r", "g", "b", "a" });
+
+        // Check for any other fields.
+        // Fields in the same attribute must be contiguous, have the same prefix, and postfix of the same category.
+        // Valid categories are [x, y, z, w], [r, g, b, a], [0, 1, 2, 3], [1, 2, 3, 4]
+
+        constexpr size_t valid_postfix_count = 4;
+        const char* postfixes[4] = {
+            "xr01",
+            "yg12",
+            "zb23",
+            "wa34"
+        };
+
+        std::unordered_set<std::string> prefixes_encountered;
+        std::string current_prefix = "";
+        size_t current_postfix_index = 0;
+        size_t current_postfix_level_index = 0;
+        bool reading_attribute = false;
+
+        auto ignore_attribute = [&]() {
+            // Reset state
+            current_prefix = "";
+            current_postfix_index = 0;
+            current_postfix_level_index = 0;
+            reading_attribute = false;
+        };
+        auto flush_attribute = [&]() {
+            for(size_t i = 0; i < current_postfix_level_index; ++i)
+                target_struct->append(current_prefix + "_" + postfixes[i][current_postfix_index], struct_type_v<InputFloat>);
+            vertex_attributes_descriptors.push_back({current_prefix, current_postfix_level_index, nullptr});
+            prefixes_encountered.insert(current_prefix);
+            // Reset state
+            ignore_attribute();
+        };
+
+        size_t field_count = ref_struct->field_count();
+        for (size_t i = 0; i < field_count; ++i) {
+            const Struct::Field& field = ref_struct->operator[](i);
+            if (reserved_names.find(field.name) != reserved_names.end())
+                continue;
+                
+            auto pos = field.name.find_last_of('_');
+            if (pos == std::string::npos) {
+                Log(Warn, "Attribute without postifx are not handled for now: attribute \"%s\" ignored.", field.name.c_str());
+                if (reading_attribute)
+                    flush_attribute();
+                continue; // Don't do anything with attributes without postfix (for now)
+            }
+
+            const std::string postfix = field.name.substr(pos+1);
+            if (postfix.size() != 1) {
+                Log(Warn, "Attribute postfix can only be one letter long.");
+                if (reading_attribute)
+                    flush_attribute();
+                continue;
+            }
+
+            const std::string prefix = field.name.substr(0, pos);
+            if (reading_attribute && prefix != current_prefix)
+                flush_attribute();
+
+            if (!reading_attribute && prefixes_encountered.find(prefix) != prefixes_encountered.end()) {
+                Log(Warn, "This attribute prefix has already been encountered: attribute \"%s\" ignored.", field.name.c_str());
+                while(i < field_count && ref_struct->operator[](i).name.find(prefix) == 0) ++i;
+                if (i == field_count)
+                    break;
+                continue;
+            }
+
+            char chpostfix = postfix[0];
+            // If this is the first occurence of this attribute, we look for the postfix index
+            if (!reading_attribute) {
+                int32_t postfix_index = -1;
+                for (size_t j = 0; j < valid_postfix_count; ++j) {
+                    if (chpostfix == postfixes[0][j]) {
+                        postfix_index = (int32_t)j;
+                        break;
+                    }
+                }
+                if (postfix_index == -1) {
+                    Log(Warn, "Attribute can't start with postfix %c.", chpostfix);
+                    continue;
+                }
+                reading_attribute = true;
+                current_postfix_index = postfix_index;
+                current_prefix = prefix;
+            } else { // otherwise the postfix sequence should follow the naming rules
+                if (chpostfix != postfixes[current_postfix_level_index][current_postfix_index]) {
+                    Log(Warn, "Attribute postfix sequence is invalid: attribute \"%s\" ignored.", current_prefix.c_str());
+                    ignore_attribute();
+                    while(i < field_count && ref_struct->operator[](i).name.find(prefix) == 0) ++i;
+                    if (i == field_count)
+                        break;
+                }
+            }
+            // In both cases, we increment the postfix_level_index
+            ++current_postfix_level_index;
+        }
+        if (reading_attribute)
+            flush_attribute();
     }
 
     MTS_DECLARE_CLASS()
